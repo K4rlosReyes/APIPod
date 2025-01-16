@@ -1,3 +1,4 @@
+from abc import abstractmethod
 from typing import Union
 
 from fast_task_api.CONSTS import SERVER_HEALTH, FTAPI_DEPLOYMENTS
@@ -23,6 +24,7 @@ class _SocaityRouter:
     def get_health(self) -> SERVER_HEALTH:
         return self.status
 
+    @abstractmethod
     def get_job(self, job_id: str):
         """
         Get the job with the given job_id if it exists.
@@ -39,6 +41,7 @@ class _SocaityRouter:
         """
         raise NotImplementedError("Implement in subclass")
 
+    @abstractmethod
     def start(self, deployment: Union[FTAPI_DEPLOYMENTS, str] = FTAPI_DEPLOYMENT, port: int = FTAPI_PORT, *args, **kwargs):
         raise NotImplementedError("Implement in subclass")
 
@@ -54,6 +57,7 @@ class _SocaityRouter:
         """
         raise NotImplementedError("Implement in subclass. Use a decorator for that.")
 
+    @abstractmethod
     def task_endpoint(
             self,
             path: str = None,

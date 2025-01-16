@@ -4,6 +4,7 @@ from typing import Union, List
 
 from pydantic import BaseModel
 
+
 def _is_socaity_ai_route_inference_callable(func: callable):
     try:
         return 'routeinferencecallable' in inspect.getmodule(func).__name__.lower().replace("_",'')
@@ -38,3 +39,4 @@ def replace_func_signature(func: callable, new_sig: Union[inspect.Signature, Lis
         setattr(func, '__signature__', new_sig)
 
     return func
+

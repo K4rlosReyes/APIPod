@@ -4,7 +4,7 @@ import inspect
 from fast_task_api.compatibility.LimitedUploadFile import LimitedUploadFile
 from fast_task_api.core.utils import get_func_signature, replace_func_signature
 from typing import Union
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, UploadFile, HTTPException
 
 from fast_task_api.compatibility.upload import (is_param_media_toolkit_file, check_if_param_is_in_data_types)
 from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST
@@ -127,48 +127,54 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
 
         return replace_func_signature(func, new_sig)
 
-    def _handle_file_uploads(self, func: callable, max_upload_file_size_mb: float = None) -> callable:
+    def _extract_upload_params(self, func: callable):
         """
-        Modify the function signature of an endpoint, such that fastapi can handle file uploads.
-        Parse/Read the starlette.MediaFile and give it as read socaity MediaFile to the function while execution.
+        Extract parameters from the function signature that are upload files.
         """
-
-        # original func parameter names: needed multiple times
         original_func_sig = get_func_signature(func)
         original_func_parameters = original_func_sig.parameters.values()
-        # create a dict to store the params that are UploadFiles
-        # this is used to later map the file while reading
-        upload_params = {
+        return {
             param.name: param.annotation
             for param in original_func_parameters
             if is_param_media_toolkit_file(param)
         }
 
-        def read_file_if_is_upload_file(param_name: str, data):
-            # check if we have the file in our list
-            my_data_type = upload_params.get(param_name, None)
-            if my_data_type is not None:
-                return media_from_any(data, my_data_type, use_temp_file=True)
-            # if is not a file, return as is
-            return data
+    def _read_upload_file(self, param_name: str, data, upload_params: dict, *args, **kwargs):
+        """
+        Default behavior for reading a file if it is an upload file.
+        *args, **kwargs will be the other function parameters passed in the request.
+        Can be used to get dependencies and so on.
+        """
+        my_data_type = upload_params.get(param_name, None)
+        if my_data_type is not None:
+            return media_from_any(data, my_data_type, use_temp_file=True)
+        return data
 
-        @functools.wraps(func)
-        def file_upload_wrapper(*args, **kwargs):
-            # args, kwargs to _ kwargs
-            org_func_names = [param.name for param in original_func_parameters]
-            nkwargs = {org_func_names[i]: arg for i, arg in enumerate(args)}
-            nkwargs.update(kwargs)
-            # convert to socaity MediaFile if it is a file
-            n_kwargs = {key: read_file_if_is_upload_file(key, value) for key, value in kwargs.items()}
+    def _prepare_function_signature(self, func: callable, max_upload_file_size_mb: float):
+        """
+        Prepare the function signature for file uploads.
+        """
 
-            return func(**n_kwargs)
+        def create_limited_upload_file(max_size: float):
+            """
+            Factory function to create a subclass of LimitedUploadFile with a predefined max_size.
+            Needs to be done in factory function, because creating it directly causes pydantic errors
+            """
 
-        # Define a partial version of LimitedUploadFile with max_size set
+            class LimitedUploadFileWithMaxSize(LimitedUploadFile):
+                def __init__(self, *args, **kwargs):
+                    super().__init__(*args, max_size=max_size, **kwargs)
+
+            return LimitedUploadFileWithMaxSize
+
+        # Use the factory to create the class with a predefined max_size
         mx = max_upload_file_size_mb if max_upload_file_size_mb is not None else self.max_upload_file_size_mb
-        _limited_upload_file = functools.partial(LimitedUploadFile, max_size=mx)
+        LimitedUploadFileWithMaxSize = create_limited_upload_file(max_size=mx)
 
-        # replace MediaToolkit files with LimitedUploadFile (a fastapi compatible UploadFile)
-        # If the parameter is already an LimitedUploadFile, it's not replaced because limit can be individually set
+        _limited_upload_file = LimitedUploadFileWithMaxSize
+
+        original_func_sig = get_func_signature(func)
+        original_func_parameters = original_func_sig.parameters.values()
         new_sig = original_func_sig.replace(parameters=[
             param.replace(annotation=_limited_upload_file)
             if (
@@ -178,10 +184,32 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
             else param
             for param in original_func_parameters
         ])
-        file_upload_wrapper.__signature__ = new_sig
-        func = replace_func_signature(func, new_sig)
+        func.__signature__ = new_sig
+        return func
 
-        return file_upload_wrapper
+    def _handle_file_uploads(self, func: callable, max_upload_file_size_mb: float = None) -> callable:
+        """
+        Main method for handling file uploads, refactored into sub-methods.
+        """
+        upload_params = self._extract_upload_params(func)
+        @functools.wraps(func)
+        def file_upload_wrapper(*args, **kwargs):
+            org_func_names = [param.name for param in get_func_signature(func).parameters.values()]
+            nkwargs = {org_func_names[i]: arg for i, arg in enumerate(args)}
+            nkwargs.update(kwargs)
+
+            read_files = {}
+            for k, v in nkwargs.items():
+                #try:
+                    read_files[k] = self._read_upload_file(k, v, upload_params, *args, **kwargs)
+                #except Exception as e:
+                #    raise HTTPException(400, f"Error with the provided file for: {k}. "
+                #                             f"Check if the file has the correct type. And try again.")
+            nkwargs.update(read_files)
+
+            return func(**nkwargs)
+
+        return self._prepare_function_signature(file_upload_wrapper, max_upload_file_size_mb)
 
     @functools.wraps(APIRouter.api_route)
     def endpoint(self, path: str, methods: list[str] = None, *args, **kwargs):

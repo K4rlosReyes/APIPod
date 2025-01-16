@@ -10,7 +10,6 @@ class LimitedUploadFile(UploadFile):
         :param max_size_mb: Limit for file. if max_size_mb is None, no limit is enforced.
         """
         super().__init__(*args, **kwargs)
-
         self.max_size_mb = max_size_mb * 1024 * 1024 if max_size_mb else None
         self._size = 0
 

@@ -100,7 +100,10 @@ class JobQueue(Generic[T]):
             job.result = None
             job.job_progress.set_status(1.0, str(e))
             job.status = JOB_STATUS.FAILED
-            print(f"Job {job.id} failed: {traceback.format_exc()}")
+            # Print the full stack trace to standard error
+            print(f"Job {job.id} failed: {str(e)}")
+            traceback.print_exc()  # Writes full traceback to stderr
+
 
         finally:
             job.execution_finished_at = datetime.utcnow()
