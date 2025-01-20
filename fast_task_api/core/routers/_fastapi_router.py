@@ -139,16 +139,20 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
             if is_param_media_toolkit_file(param)
         }
 
-    def _read_upload_file(self, param_name: str, data, upload_params: dict, *args, **kwargs):
+    def _read_upload_files(self, files: dict, upload_params: dict, *args, **kwargs):
         """
-        Default behavior for reading a file if it is an upload file.
+        Default behavior for reading the upload files.
+        files: dict with the parameter names as keys and the file objects as values.
+        upload_params: dict with the parameter names as keys and the file types as values.
+
         *args, **kwargs will be the other function parameters passed in the request.
         Can be used to get dependencies and so on.
         """
-        my_data_type = upload_params.get(param_name, None)
-        if my_data_type is not None:
-            return media_from_any(data, my_data_type, use_temp_file=True)
-        return data
+        read_files = {}
+        for key, val in files.items():
+            my_data_type = upload_params.get(key, None)
+            read_files[key] = media_from_any(val, my_data_type, use_temp_file=True) if my_data_type is not None else val
+        return read_files
 
     def _prepare_function_signature(self, func: callable, max_upload_file_size_mb: float):
         """
@@ -191,20 +195,22 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
         """
         Main method for handling file uploads, refactored into sub-methods.
         """
-        upload_params = self._extract_upload_params(func)
+        upload_param_types = self._extract_upload_params(func)
         @functools.wraps(func)
         def file_upload_wrapper(*args, **kwargs):
             org_func_names = [param.name for param in get_func_signature(func).parameters.values()]
             nkwargs = {org_func_names[i]: arg for i, arg in enumerate(args)}
             nkwargs.update(kwargs)
 
-            read_files = {}
-            for k, v in nkwargs.items():
-                #try:
-                    read_files[k] = self._read_upload_file(k, v, upload_params, *args, **kwargs)
-                #except Exception as e:
-                #    raise HTTPException(400, f"Error with the provided file for: {k}. "
-                #                             f"Check if the file has the correct type. And try again.")
+            files_pams = {k: v for k, v in nkwargs.items() if k in upload_param_types}
+
+            try:
+                read_files = self._read_upload_files(files_pams, upload_param_types, *args, **kwargs)
+            except HTTPException as e:
+                raise e
+            except Exception as e:
+                raise HTTPException(400, f"Error in file upload."
+                                         f"Check if the file has the correct type. And try again.")
             nkwargs.update(read_files)
 
             return func(**nkwargs)
