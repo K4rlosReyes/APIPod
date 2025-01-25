@@ -15,13 +15,13 @@ readme = "README.md"
 dependencies = [
     "uvicorn",
     "fastapi",
-    "media-toolkit>=0.1.2",
+    "media-toolkit>=0.1.3",
     "singleton-decorator==1.0.0"
 ]
 
 [project.urls]
 Repository = "https://github.com/SocAIty/fast-task-api"
-
+Homepage = "https://www.socaity.ai"
 
 [project.optional-dependencies]
 full = [

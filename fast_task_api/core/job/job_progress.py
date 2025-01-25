@@ -21,8 +21,12 @@ class JobProgressRunpod(JobProgress):
 
     def set_status(self, progress: float, message: str = None):
         super().set_status(progress=progress, message=message)
-        import runpod
-        runpod.serverless.progress_update(
-            self.runpod_job,
-            f"Progress: {int(self._progress)} Message: {self._message}"
-        )
+
+        try:
+            import runpod
+            runpod.serverless.progress_update(
+                self.runpod_job,
+                f"Progress: {int(self._progress)} Message: {self._message}"
+            )
+        except Exception as e:
+            print(f"Problem in progress update: {e}")
