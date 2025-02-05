@@ -22,13 +22,18 @@ class JobQueue(Generic[T]):
     - Job result storage
     - Job status tracking
     """
-    def __init__(self):
+    def __init__(self, delete_orphan_jobs_after_s: int = 60 * 30):
+        """
+        :param delete_orphan_jobs_after_s: If a completed job is not collected within this time, it will be deleted.
+            This is useful to prevent memory leaks when jobs are not collected.
+        """
         self.job_store = JobStore[T]()
         self.queue_sizes: Dict[str, int] = {}
 
         self.worker_thread = threading.Thread(target=self._process_jobs_in_background, daemon=True)
         self._shutdown = threading.Event()
         self._job_threads: Dict[str, threading.Thread] = {}
+        self._delete_orphan_jobs_after_seconds = delete_orphan_jobs_after_s
 
     def set_queue_size(self, job_function: callable, queue_size: int = 500) -> None:
         self.queue_sizes[job_function.__name__] = queue_size
@@ -147,6 +152,7 @@ class JobQueue(Generic[T]):
         Override this method to add custom cleanup logic. For example cleanup of temporary files.
         """
         self._remove_completed_jobs_with_living_threads()
+        self._clean_up_orphan_jobs()
 
     def _remove_completed_jobs_with_living_threads(self) -> None:
         for job_id in self.job_store.completed_jobs:
@@ -155,6 +161,18 @@ class JobQueue(Generic[T]):
                     thread.join(timeout=0.1)
                 except Exception as e:
                     print(f"Error joining thread for job {job_id}: {str(e)}")
+
+    def _clean_up_orphan_jobs(self) -> None:
+        """
+        Cleanup the job queue. This method is called after the worker thread has finished.
+        We want to remove jobs which are not collected orphans.
+        """
+        if not self._delete_orphan_jobs_after_seconds:
+            return
+
+        for job in self.job_store.completed_jobs:
+            if (datetime.now() - job.execution_finished_at).total_seconds() > self._delete_orphan_jobs_after_seconds:
+                self.job_store.remove_completed_job(job.id)
 
     def _start_queued_jobs(self) -> None:
         for job in self.job_store.queued_jobs:

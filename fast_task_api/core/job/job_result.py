@@ -37,7 +37,6 @@ class JobResult(BaseModel):
 
 
 class JobResultFactory:
-
     @staticmethod
     def from_base_job(ij: BaseJob) -> JobResult:
         format_date = lambda date: date.strftime(DEFAULT_DATE_TIME_FORMAT) if date else None
