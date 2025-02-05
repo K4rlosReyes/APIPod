@@ -227,7 +227,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
     def task_endpoint(
             self,
             path: str,
-            queue_size: int = 100,
+            queue_size: int = 500,
             methods: list[str] = None,
             max_upload_file_size_mb: int = None,
             *args,

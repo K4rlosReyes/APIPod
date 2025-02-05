@@ -25,11 +25,12 @@ class JobQueue(Generic[T]):
     def __init__(self):
         self.job_store = JobStore[T]()
         self.queue_sizes: Dict[str, int] = {}
+
         self.worker_thread = threading.Thread(target=self._process_jobs_in_background, daemon=True)
         self._shutdown = threading.Event()
         self._job_threads: Dict[str, threading.Thread] = {}
 
-    def set_queue_size(self, job_function: callable, queue_size: int = 100) -> None:
+    def set_queue_size(self, job_function: callable, queue_size: int = 500) -> None:
         self.queue_sizes[job_function.__name__] = queue_size
 
     def _validate_queue_size(self, job: BaseJob) -> (bool, str):
@@ -85,6 +86,13 @@ class JobQueue(Generic[T]):
 
         return job
 
+    def _job_completed_event(self, job: T) -> T:
+        """
+        Override this method to add custom event handling when a job is completed.
+        Will be called when finished, failed, timed out or cancelled.
+        """
+        return job
+
     def _process_job(self, job: T) -> None:
         try:
             job.execution_started_at = datetime.utcnow()
@@ -95,7 +103,6 @@ class JobQueue(Generic[T]):
             job.result = job.job_function(**job.job_params)
             job.job_progress.set_status(1.0)
             job.status = JOB_STATUS.FINISHED
-
         except Exception as e:
             job.result = None
             job.job_progress.set_status(1.0, str(e))
@@ -104,10 +111,9 @@ class JobQueue(Generic[T]):
             # Print the full stack trace to standard error
             print(f"Job {job.id} failed: {str(e)}")
             traceback.print_exc()  # Writes full traceback to stderr
-
-
         finally:
             job.execution_finished_at = datetime.utcnow()
+            job = self._job_completed_event(job)
             self.job_store.complete_job(job.id)
 
     def _process_jobs_in_background(self) -> None:
@@ -137,6 +143,9 @@ class JobQueue(Generic[T]):
                 self.job_store.complete_job(job.id)
 
     def _cleanup(self) -> None:
+        """
+        Override this method to add custom cleanup logic. For example cleanup of temporary files.
+        """
         self._remove_completed_jobs_with_living_threads()
 
     def _remove_completed_jobs_with_living_threads(self) -> None:

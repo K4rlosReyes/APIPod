@@ -21,7 +21,7 @@ class _QueueMixin:
 
     def job_queue_func(
             self,
-            queue_size: int = 100,
+            queue_size: int = 500,
             *args,
             **kwargs
     ):

@@ -61,7 +61,7 @@ class _SocaityRouter:
     def task_endpoint(
             self,
             path: str = None,
-            queue_size: int = 100,
+            queue_size: int = 500,
             *args,
             **kwargs
     ):
