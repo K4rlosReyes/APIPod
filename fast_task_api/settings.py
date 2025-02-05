@@ -17,8 +17,3 @@ if FTAPI_BACKEND == FTAPI_BACKENDS.RUNPOD and FTAPI_DEPLOYMENT == FTAPI_DEPLOYME
     sys.argv.extend(['rp_serve_api', '1'])
     sys.argv.extend(['--rp_serve_api', '1'])
 
-
-# Download files provided as URL and convert them into a MediaFile object
-# This is used in the _handle_file_upload method of the FastAPIRouter class
-DOWNLOAD_FILES_PROVIDED_AS_URL = environ.get("FTAPI_DOWNLOAD_FILES_PROVIDED_AS_URL", True)
-

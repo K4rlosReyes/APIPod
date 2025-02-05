@@ -28,6 +28,6 @@ full = [
     "uvicorn",
     "fastapi",
     "runpod>=1.7.7",
-    "media-toolkit[full]>=0.1.6",
+    "media-toolkit[VideoFile]>=0.1.6",
     "singleton-decorator==1.0.0"
 ]
