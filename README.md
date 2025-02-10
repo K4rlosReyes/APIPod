@@ -2,19 +2,20 @@
   <h1 align="center" style="margin-top:-25px">FastTaskAPI</h1>
   <h3 align="center" style="margin-top:-10px">Create web-APIs for long-running tasks</h3>
 <p align="center">
-  <img align="center" src="docs/socaity_router_icon.png" height="200" />
-</p>
-
-<p align="center">
-Call the server and return a job id. Get the result with the job id later.</br>
-FastTaskAPI creates threaded jobs and job queues on the fly.</br>
-Run services anywhere, be it local, hosted or serverless.</br>
+  <img align="center" src="docs/example_images/socaity_router_icon.png" height="200" />
 </p>
 
 <p align="center">
 We at SocAIty developed FastTaskAPI to create and deploy our AI services as easy and standardized as possible.
 Built on-top of FastAPI and runpod you can built high quality endpoints with proven stability. 
+Run services anywhere, be it local, hosted or serverless.</br>
 </p>
+
+<p align="center">
+Call the server and return a job id. Get the result with the job id later.</br>
+FastTaskAPI creates threaded jobs and job queues on the fly.
+</p>
+
 
 ## Table of contents
 
@@ -35,6 +36,7 @@ Creating services for long-running tasks is hard.
 - In AI services inference time makes realtime results difficult. Parallel jobs, and a Job queue is often required. For example as a client you would not like to wait for a server response instead do some work until the server produced the result.
 - Serverless deployments like runpod often DO NOT provide routing functionality. This router works in this conditions.
 - Scaling AI services is hard.
+- Everybody handles file uploads differently. Different formats, request-toolkits, base64, byte-streams. This leads to messy code. We standardized file handling with [MediaToolkit](https://github.com/SocAIty/media-toolkit).
 - Streaming services (for example for generative models) is complicated to setup.
 - Same Syntax for all kind of hosting providers and services.
 
@@ -43,7 +45,7 @@ The syntax is oriented by the simplicity of fastapi. Other hazards are taken car
 
 
 ## What does this do?
-<img align="right" src="docs/socaity_services.png" height="400" style="margin-top: 50px" />
+<img align="right" src="docs/example_images/socaity_services.png" height="400" style="margin-top: 50px" />
 
 
 - Jobs, job queues for your service (no code required).
@@ -94,11 +96,12 @@ def my_image_manipulator(upload_img: ImageFile):
 app.start()
 ```
 If you execute this code you should see the following page under http://localhost:8000/docs.
-<img align="center" src="docs/demo_service.png" />
+<img align="center" src="docs/example_images/demo_service.png" />
 
 ## Jobs and job queues
 
 If you have a long running task, you can use the job queue functionality. 
+
 ```python
 @app.task_endpoint(path="/make_fries", queue_size=100)
 def make_fries(job_progress: JobProgress, fries_name: str, amount: int = 1):
@@ -116,6 +119,12 @@ What will happen now is:
 
 Note: in case of "runpod", "serverless" this is not necessary, as the job mechanism is handled by runpod deployment.
 
+You can provide status updates by changing the values of the job_progress object. 
+If you add a parameter named job_progress to the function we will pass that object to the function.
+If then a client asks for the status of the task, he will get the messages and the process bar. 
+This is for example in [fastSDK](https://github.com/SocAIty/fastSDK) used to provide a progress bar.
+
+
 ### Calling the endpoints -> Getting the job result
 
 You can call the endpoints with a simple http request.
@@ -125,23 +134,7 @@ For more convenience with the socaity package, you can use the endpoints like fu
 ### Use the endpoints like functions with [fastSDK](https://github.com/SocAIty/fastSDK).
 With fastSDK, you can use the endpoints like a function. FastSDK will deal with the job id and the status requests in the background.
 This makes it insanely useful for complex scenarios where you use multiple models and endpoints.
-
-### Job status and progress bars
-
-You can provide status updates by changing the values of the job_progress object. 
-If you add a parameter named job_progress to the function we will pass that object to the function.
-If then a client asks for the status of the task, he will get the messages and the process bar. This is for example in the socaity package used to provide a progress bar.
-
-```python
-@app.task_endpoint("/predict", queue_size=10)
-def predict(job_progress: JobProgress, my_param1: str, my_param2: int = 0):
-  job_progress._message = "I am working on it"
-  job_progress._progress = 0.5
-  job_progress._message = "Still working on it. Almost done"
-  job_progress._progress = 0.8
-  return "my_awesome_prediction"
-```
-When the return is finished, the job is marked as done and the progress bar is automatically set to 1.
+Checkout the [fastSDK](https://github.com/SocAIty/fastSDK) documentation for more information.
 
 
 ### Normal openapi (no-task) endpoints
@@ -165,15 +158,16 @@ from fast_task_api import MediaFile, ImageFile, AudioFile, VideoFile
 
 @app.task_endpoint("/my_upload")
 def my_upload(anyfile: MediaFile):
-    return anyfile.content
+    return anyfile
 ```
 FastTaskAPI supports all file-types of [media-toolkit](https://github.com/SocAIty/media-toolkit). This includes common file types like: ImageFile, AudioFile and VideoFile.
 ```python
 from fast_task_api import ImageFile, AudioFile, VideoFile
 
 @app.task_endpoint("/my_file_upload")
-def my_upload_image(image: ImageFile, audio: AudioFile, video: VideoFile):
+def my_file_upload(image: ImageFile, audio: AudioFile, video: VideoFile):
     image_as_np_array = np.array(image)
+    return [ImageFile().from_file(image_as_np_array) for i in range(10)]
 ```
 You can call the endpoints, either with bytes or b64 encoded strings. 
 
@@ -281,7 +275,7 @@ of using the own job queue implementation.
 
 # FastSDK :two_hearts: FastTaskAPI
 
-<img src="docs/fastsdk_to_fasttaskapi.png" width="50%" />
+<img src="docs/example_images/fastsdk_to_fasttaskapi.png" width="50%" />
 
 [FastSDK](https://github.com/SocAIty/fastSDK) allows you to easily invoke your FastTaskAPI services with python in an efficient parallel manner.
 Therefore you can natively work with them as if they are python functions.

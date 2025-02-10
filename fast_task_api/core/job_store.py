@@ -17,7 +17,10 @@ class JobStore(Generic[T]):
         # the following three lists are just references to the jobs in _jobs
         self._queue: deque[str] = deque()
         self._in_progress: Set[str] = set()
-        self._completed: deque[str] = deque()
+        self._completed: Set[str] = set()
+
+    def get_job(self, job_id: str) -> Optional[T]:
+        return self._jobs.get(job_id)
 
     def add_to_queue(self, job: T) -> None:
         with self._lock:
@@ -32,14 +35,14 @@ class JobStore(Generic[T]):
                 return self._jobs.get(job_id)
         return None
 
+    def is_completed(self, job_id: str):
+        return job_id in self._completed
+
     def complete_job(self, job_id: str) -> None:
         with self._lock:
             if job_id in self._in_progress:
                 self._in_progress.remove(job_id)
-                self._completed.append(job_id)
-
-    def get_job(self, job_id: str) -> Optional[T]:
-        return self._jobs.get(job_id)
+                self._completed.add(job_id)
 
     def remove_completed_job(self, job_id: str) -> None:
         with self._lock:

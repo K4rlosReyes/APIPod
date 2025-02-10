@@ -1,6 +1,6 @@
 import gzip
 from io import BytesIO
-from typing import Optional, Union, Any
+from typing import Optional, Union, Any, List
 
 from pydantic import BaseModel
 
@@ -12,7 +12,7 @@ from fast_task_api.settings import DEFAULT_DATE_TIME_FORMAT
 class FileResult(BaseModel):
     file_name: str
     content_type: str
-    content: str  # base64 encoded
+    content: str  # base64 encoded or url
 
 
 class JobResult(BaseModel):
@@ -24,7 +24,7 @@ class JobResult(BaseModel):
     status: Optional[str] = None
     progress: Optional[float] = 0.0
     message: Optional[str] = None
-    result: Union[FileResult, Any, str, None] = None
+    result: Union[FileResult, List[FileResult], List, Any, str, None] = None
     refresh_job_url: Optional[str] = None
     cancel_job_url: Optional[str] = None
 
@@ -37,6 +37,7 @@ class JobResult(BaseModel):
 
 
 class JobResultFactory:
+
     @staticmethod
     def from_base_job(ij: BaseJob) -> JobResult:
         format_date = lambda date: date.strftime(DEFAULT_DATE_TIME_FORMAT) if date else None
@@ -49,6 +50,12 @@ class JobResultFactory:
         result = ij.result
         if is_param_media_toolkit_file(ij.result):
             result = FileResult(**result.to_json())
+        elif isinstance(ij.result, list):
+            result = [
+                FileResult(**r.to_json()) if is_param_media_toolkit_file(r) else r
+                for r in ij.result
+            ]
+
 
         # Job_status is an Enum, convert it to a string to return it as json
         status = ij.status

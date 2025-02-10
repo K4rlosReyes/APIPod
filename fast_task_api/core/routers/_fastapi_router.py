@@ -10,7 +10,7 @@ from fast_task_api.compatibility.upload import (is_param_media_toolkit_file, che
 from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST
 from media_toolkit import media_from_any
 from fast_task_api.CONSTS import SERVER_HEALTH
-from fast_task_api.core.job_queue import JobQueue
+from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
 from fast_task_api.core.job.job_result import JobResult, JobResultFactory
 from fast_task_api.core.routers._socaity_router import _SocaityRouter
 from fast_task_api.core.routers.router_mixins._queue_mixin import _QueueMixin

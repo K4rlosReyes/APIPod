@@ -58,8 +58,8 @@ class JobQueue(Generic[T]):
     def add_job(self, job_function: callable, job_params: Optional[dict] = None) -> T:
         job = self._create_job(job_function, job_params)
 
+        # pre add validation
         valid, message = self._validate_job_before_add(job)
-
         if not valid:
             job.status = JOB_STATUS.FAILED
             job.error = message
@@ -79,6 +79,45 @@ class JobQueue(Generic[T]):
         """Override this method in subclasses to create specific job types"""
         return BaseJob(job_function=job_function, job_params=job_params)
 
+    def _process_job(self, job: T) -> None:
+        try:
+            job.execution_started_at = datetime.utcnow()
+            job.status = JOB_STATUS.PROCESSING
+
+            self._inject_job_progress(job)
+
+            job.result = job.job_function(**job.job_params)
+            job.job_progress.set_status(1.0)
+            self._complete_job(job=job, final_state=JOB_STATUS.FINISHED)
+
+        except Exception as e:
+            job.result = None
+            job.job_progress.set_status(1.0, str(e))
+            job.error = str(e)
+            self._complete_job(job, JOB_STATUS.FAILED)
+            # Print the full stack trace to standard error
+            print(f"Job {job.id} failed: {str(e)}")
+            traceback.print_exc()  # Writes full traceback to stderr
+
+    def _complete_job(self, job: T, final_state: JOB_STATUS) -> T:
+        self.job_store.complete_job(job.id)
+        # setting status here, because if this is done earlier, race conditions in get_job are the problem
+        job.execution_finished_at = datetime.utcnow()
+        job.status = final_state
+        return job
+
+    def _remove_job(self, job: T) -> None:
+        """ Override this method to add custom job removal logic """
+        self.job_store.remove_completed_job(job.id)
+
+    def cancel_job(self, job_id: str) -> None:
+        raise NotImplementedError("Job cancellation is not implemented yet.")
+        #if job := self.get_job(job_id):
+        #    job.status = JOB_STATUS.FAILED
+        #    job.job_progress.set_status(1.0, "Job cancelled")
+        #    todo: sent event to thread, make a cancel request...
+        #    self._complete_job(job_id)
+
     def _inject_job_progress(self, job: T) -> T:
         sig = get_func_signature(job.job_function)
 
@@ -90,36 +129,6 @@ class JobQueue(Generic[T]):
             job.job_params[job_progress_param.name] = job.job_progress
 
         return job
-
-    def _job_completed_event(self, job: T) -> T:
-        """
-        Override this method to add custom event handling when a job is completed.
-        Will be called when finished, failed, timed out or cancelled.
-        """
-        return job
-
-    def _process_job(self, job: T) -> None:
-        try:
-            job.execution_started_at = datetime.utcnow()
-            job.status = JOB_STATUS.PROCESSING
-
-            self._inject_job_progress(job)
-
-            job.result = job.job_function(**job.job_params)
-            job.job_progress.set_status(1.0)
-            job.status = JOB_STATUS.FINISHED
-        except Exception as e:
-            job.result = None
-            job.job_progress.set_status(1.0, str(e))
-            job.error = str(e)
-            job.status = JOB_STATUS.FAILED
-            # Print the full stack trace to standard error
-            print(f"Job {job.id} failed: {str(e)}")
-            traceback.print_exc()  # Writes full traceback to stderr
-        finally:
-            job.execution_finished_at = datetime.utcnow()
-            job = self._job_completed_event(job)
-            self.job_store.complete_job(job.id)
 
     def _process_jobs_in_background(self) -> None:
         while not self._shutdown.is_set():
@@ -143,9 +152,7 @@ class JobQueue(Generic[T]):
     def _check_timeouts(self) -> None:
         for job in self.job_store.in_progress_jobs:
             if job.is_timed_out:
-                job.status = JOB_STATUS.TIMEOUT
-                job.execution_finished_at = datetime.utcnow()
-                self.job_store.complete_job(job.id)
+                self._complete_job(job, JOB_STATUS.TIMEOUT)
 
     def _cleanup(self) -> None:
         """
@@ -161,6 +168,10 @@ class JobQueue(Generic[T]):
                     thread.join(timeout=0.1)
                 except Exception as e:
                     print(f"Error joining thread for job {job_id}: {str(e)}")
+                try:
+                    self._remove_job(self.job_store.get_job(job_id))
+                except Exception as e:
+                    print(f"Error removing job {job_id}: {str(e)}")
 
     def _clean_up_orphan_jobs(self) -> None:
         """
@@ -172,7 +183,7 @@ class JobQueue(Generic[T]):
 
         for job in self.job_store.completed_jobs:
             if (datetime.utcnow() - job.execution_finished_at).total_seconds() > self._delete_orphan_jobs_after_seconds:
-                self.job_store.remove_completed_job(job.id)
+                self._remove_job(job)
 
     def _start_queued_jobs(self) -> None:
         for job in self.job_store.queued_jobs:
@@ -183,18 +194,13 @@ class JobQueue(Generic[T]):
 
     def get_job(self, job_id: str, keep_alive: bool = False) -> Optional[T]:
         job = self.job_store.get_job(job_id)
-        if job and job.status in {JOB_STATUS.FINISHED, JOB_STATUS.FAILED, JOB_STATUS.TIMEOUT}:
-            if not keep_alive:
-                self.job_store.remove_completed_job(job_id)
-        return job
+        if not job:
+            return None
 
-    def cancel_job(self, job_id: str) -> None:
-        raise NotImplementedError("Job cancellation is not implemented yet.")
-        #if job := self.get_job(job_id):
-        #    job.status = JOB_STATUS.FAILED
-        #    job.job_progress.set_status(1.0, "Job cancelled")
-        #    todo: sent event to thread, make a cancel request...
-        #    self.job_store.complete_job(job_id)
+        if job and self.job_store.is_completed(job.id):  # job.status in {JOB_STATUS.FINISHED, JOB_STATUS.FAILED, JOB_STATUS.TIMEOUT}:
+            if not keep_alive:
+                self._remove_job(job)
+        return job
 
     def shutdown(self) -> None:
         self._shutdown.set()
