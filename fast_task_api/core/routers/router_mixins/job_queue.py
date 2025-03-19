@@ -123,7 +123,7 @@ class JobQueue(Generic[T]):
 
         job_progress_params = [
             p for p in sig.parameters.values()
-            if p.name == "job_progress" or "JobProgress" in str(p.annotation)
+            if p.name == "job_progress" or "FastJobProgress" in str(p.annotation)
         ]
         for job_progress_param in job_progress_params:
             job.job_params[job_progress_param.name] = job.job_progress

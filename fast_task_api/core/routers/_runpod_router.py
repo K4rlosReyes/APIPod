@@ -76,7 +76,7 @@ class SocaityRunpodRouter(_SocaityRouter):
         :param kwargs: the arguments that are passed to the function
         :return: the arguments with the job_progress object added if necessary
         """
-        # Therefore instead of initiating a normal JobProgress object a specialized RunpodProgress object is initiated.
+        # Therefore instead of initiating a normal FastJobProgress object a specialized RunpodProgress object is initiated.
         # The RunpodProgress object has a reference to the runpopd job.
 
         job_progress_params = []

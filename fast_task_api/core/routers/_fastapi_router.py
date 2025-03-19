@@ -126,7 +126,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
         sig = get_func_signature(func)
         new_sig = sig.replace(parameters=[
             p for p in sig.parameters.values()
-            if p.name != "job_progress" and "JobProgress" not in p.annotation.__name__
+            if p.name != "job_progress" and "FastJobProgress" not in p.annotation.__name__
         ])
 
         return replace_func_signature(func, new_sig)

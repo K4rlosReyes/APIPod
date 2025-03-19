@@ -15,6 +15,11 @@ class FileResult(BaseModel):
     content: str  # base64 encoded or url
 
 
+class JobProgress(BaseModel):
+    progress: float = 0.0
+    message: Optional[str] = None
+
+
 class JobResult(BaseModel):
     """
     When the user (client) sends a request to an Endpoint, a ClientJob is created.
@@ -22,8 +27,8 @@ class JobResult(BaseModel):
     """
     id: str
     status: Optional[str] = None
-    progress: Optional[float] = 0.0
-    message: Optional[str] = None
+    progress: Optional[JobProgress] = None
+    error: Optional[str] = None
     result: Union[FileResult, List[FileResult], List, Any, str, None] = None
     refresh_job_url: Optional[str] = None
     cancel_job_url: Optional[str] = None
@@ -62,11 +67,16 @@ class JobResultFactory:
         if isinstance(status, JOB_STATUS):
             status = status.value
 
+        try:
+            jp = JobProgress(progress=ij.job_progress._progress, message=ij.job_progress._message)
+        except Exception as e:
+            jp = JobProgress(progress=0.0, message='')
+
         return JobResult(
             id=ij.id,
             status=status,
-            progress=ij.job_progress._progress,
-            message=ij.job_progress._message,
+            progress=jp,
+            error=ij.error,
             result=result,
             created_at=created_at,
             queued_at=queued_at,
@@ -91,6 +101,7 @@ class JobResultFactory:
         return JobResult(
             id=job_id,
             status=JOB_STATUS.FAILED,
+            error="Job not found.",
             message="Job not found.",
         )
 
