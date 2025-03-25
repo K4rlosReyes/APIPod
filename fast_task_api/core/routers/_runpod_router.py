@@ -200,7 +200,7 @@ class SocaityRunpodRouter(_SocaityRouter):
         rp_fastapi.DESCRIPTION = self.summary + " " + rp_fastapi.DESCRIPTION
         desc = '''\
                         In input declare your path as route for the function. Other parameters follow in the input as usual.
-                        The FastTaskAPI router will use the path argument to route to the correct function declared with 
+                        The FastTaskAPI app will use the path argument to route to the correct function declared with 
                         @task_endpoint(path="your_path").
                         { "input": { "path": "your_path", "your_other_args": "your_other_args" } }
                     '''

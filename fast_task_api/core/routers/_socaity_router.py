@@ -89,10 +89,3 @@ class _SocaityRouter:
     def post(self, path: str = None, queue_size: int = 1, *args, **kwargs):
         raise NotImplementedError("Implement in subclass. Consider using add_route instead.")
 
-    @staticmethod
-    def _handle_file_uploads(func: callable):
-        """
-        Modify the function signature to handle file uploads.
-        :param func: the route function
-        """
-        raise NotImplementedError("Implement in subclass")

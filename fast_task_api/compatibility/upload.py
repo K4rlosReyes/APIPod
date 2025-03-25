@@ -4,23 +4,19 @@ UploadDataTypes are used to ensure compatibility between different providers. Fo
 - In runpod the job data always is json. Therefore, any upload data must be base64 encoded.
 We will parse the data and always provide it as a binary object to your function.
 """
+import inspect
 from inspect import Parameter
 from media_toolkit import MediaFile, AudioFile, ImageFile, VideoFile
 from starlette.datastructures import UploadFile as StarletteUploadFile
-
-
-def _print_import_warning(class_name: str, lib_names: list):
-    print(f"Necessary libraries: {', '.join(lib_names)} are not installed. "
-          f"Please install them before using the {class_name} class.")
 
 
 def check_if_param_is_in_data_types(param: Parameter, type_check_list: list):
     if param is None or type_check_list is None:
         return False
 
-    from fastapi import UploadFile as fastapiUploadFile
+    # check for annotations
     if not hasattr(param, 'annotation'):
-        if not any(isinstance(param, t) for t in type_check_list):
+        if not any(isinstance(param, t) for t in type_check_list) and not any(param == t for t in type_check_list):
             return False
         else:
             return True
@@ -30,7 +26,6 @@ def check_if_param_is_in_data_types(param: Parameter, type_check_list: list):
         return param.annotation.__name__ in [t.__name__ for t in type_check_list]
 
     return type(param.annotation) in type_check_list or param.annotation in type_check_list
-
 
 def is_param_media_toolkit_file(param: Parameter):
     """

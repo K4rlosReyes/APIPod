@@ -2,17 +2,17 @@ import gzip
 from io import BytesIO
 from typing import Optional, Union, Any, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, AnyUrl
 
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
 from fast_task_api.core.job.base_job import JOB_STATUS, BaseJob
 from fast_task_api.settings import DEFAULT_DATE_TIME_FORMAT
 
 
-class FileResult(BaseModel):
+class FileModel(BaseModel):
     file_name: str
     content_type: str
-    content: str  # base64 encoded or url
+    content: Union[str, AnyUrl]  # base64 encoded or url
 
 
 class JobProgress(BaseModel):
@@ -29,7 +29,7 @@ class JobResult(BaseModel):
     status: Optional[str] = None
     progress: Optional[JobProgress] = None
     error: Optional[str] = None
-    result: Union[FileResult, List[FileResult], List, Any, str, None] = None
+    result: Union[FileModel, List[FileModel], List, str, None] = None
     refresh_job_url: Optional[str] = None
     cancel_job_url: Optional[str] = None
 
@@ -51,13 +51,13 @@ class JobResultFactory:
         execution_started_at = format_date(ij.execution_started_at)
         execution_finished_at = format_date(ij.execution_finished_at)
 
-        # if the internal job returned a media-toolkit file, convert it to a json serializable FileResult
+        # if the internal job returned a media-toolkit file, convert it to a json serializable FileModel
         result = ij.result
         if is_param_media_toolkit_file(ij.result):
-            result = FileResult(**result.to_json())
+            result = FileModel(**result.to_json())
         elif isinstance(ij.result, list):
             result = [
-                FileResult(**r.to_json()) if is_param_media_toolkit_file(r) else r
+                FileModel(**r.to_json()) if is_param_media_toolkit_file(r) else r
                 for r in ij.result
             ]
 
@@ -101,7 +101,6 @@ class JobResultFactory:
         return JobResult(
             id=job_id,
             status=JOB_STATUS.FAILED,
-            error="Job not found.",
-            message="Job not found.",
+            error="Job not found."
         )
 
