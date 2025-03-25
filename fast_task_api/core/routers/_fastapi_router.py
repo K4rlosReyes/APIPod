@@ -11,14 +11,14 @@ from fast_task_api.CONSTS import SERVER_HEALTH
 from fast_task_api.core.job.job_result import JobResultFactory, JobResult
 from fast_task_api.core.routers._socaity_router import _SocaityRouter
 from fast_task_api.core.routers.router_mixins._queue_mixin import _QueueMixin
-from fast_task_api.core.routers.router_mixins._file_handling_mixin import _FileHandlingMixin
+from fast_task_api.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
 from fast_task_api.core.utils import get_func_signature, replace_func_signature, normalize_name
 from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
 
 import importlib.metadata
 
 
-class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _FileHandlingMixin):
+class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin):
     """
     FastAPI router extension that adds support for task endpoints.
 
@@ -54,7 +54,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _FileHandling
         APIRouter.__init__(self, **api_router_kwargs)
         _SocaityRouter.__init__(self, title=title, summary=summary, *args, **kwargs)
         _QueueMixin.__init__(self, *args, **kwargs)
-        _FileHandlingMixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
+        _fast_api_file_handling_mixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
 
         # Create job queue
         self.job_queue = JobQueue()

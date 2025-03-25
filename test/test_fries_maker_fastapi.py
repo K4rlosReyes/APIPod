@@ -26,8 +26,8 @@ class MoreParams(BaseModel):
     pam1: str = "pam1"
     pam2: int = 42
 
-@app.task_endpoint("/make_video_fries")
-def make_video_fries(
+@app.task_endpoint("/mixed_media")
+def test_mixed_media(
         job_progress: JobProgress,
         anyfile1: Optional[MediaFile],
         anyfile2: FileModel,
@@ -42,9 +42,16 @@ def make_video_fries(
         astring: str = "master_of_desaster",
         anint: int = 42
     ):
-    potato_one_content = anyfile1.to_base64()
-    potato_two_content = img.to_base64()
-    return potato_two_content
+    content_one = anyfile1.to_base64()
+    content_two = img.to_base64()
+    return content_two
+
+@app.task_endpoint("test_single_file_upload")
+def test_single_file_upload(
+    job_progress: JobProgress,
+    file1: ImageFile
+):
+    return file1.to_base64()
 
 
 @app.endpoint("/make_fries", method="POST")
