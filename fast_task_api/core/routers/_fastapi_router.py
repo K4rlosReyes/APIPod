@@ -1,18 +1,16 @@
 import functools
 import inspect
-from typing import Union, Optional, Callable, Type, Dict, Any
+from typing import Union, Callable
 
 from fastapi import APIRouter, FastAPI, Response
-from pydantic import BaseModel
 
-from fast_task_api.compatibility.upload import is_param_media_toolkit_file
 from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST
 from fast_task_api.CONSTS import SERVER_HEALTH
 from fast_task_api.core.job.job_result import JobResultFactory, JobResult
 from fast_task_api.core.routers._socaity_router import _SocaityRouter
 from fast_task_api.core.routers.router_mixins._queue_mixin import _QueueMixin
 from fast_task_api.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
-from fast_task_api.core.utils import get_func_signature, replace_func_signature, normalize_name
+from fast_task_api.core.utils import normalize_name
 from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
 
 import importlib.metadata
@@ -78,7 +76,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
     def add_standard_routes(self):
         """Add standard API routes for status and health checks."""
-        self.api_route(path="/status", methods=["GET"])(self.get_job)
+        self.api_route(path="/status", methods=["POST"])(self.get_job)
         self.api_route(path="/health", methods=["GET"])(self.get_health)
 
     def get_health(self) -> Response:
@@ -132,7 +130,6 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             ret_job = JobResultFactory.gzip_job_result(ret_job)
 
         return ret_job
-
 
     @functools.wraps(APIRouter.api_route)
     def endpoint(self, path: str, methods: list[str] = None, *args, **kwargs):
@@ -198,7 +195,6 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             return fastapi_route_decorator(upload_enabled)
 
         return decorator
-
 
     def get(self, path: str = None, queue_size: int = 100, *args, **kwargs):
         """

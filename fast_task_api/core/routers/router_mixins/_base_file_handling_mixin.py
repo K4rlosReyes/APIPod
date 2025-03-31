@@ -1,9 +1,8 @@
 import functools
 import inspect
 from types import UnionType
-from typing import Any, Union, get_type_hints, get_args, get_origin, Callable, List, Optional, Type
+from typing import Any, Union, get_type_hints, get_args, get_origin, Callable, List, Type
 
-from fast_task_api.core.job.job_result import FileModel
 from media_toolkit import media_from_any, MediaFile
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
 
@@ -101,9 +100,10 @@ class _BaseFileHandlingMixin:
 
             # Attempt conversion
             return media_from_any(
-                param_value,
-                target_type,
+                file=param_value,
+                media_file_type=target_type,
                 use_temp_file=True,
+                temp_dir=None,
                 allow_reads_from_disk=False
             )
         except Exception as e:

@@ -36,7 +36,7 @@ def test_mixed_media(
         audio: AudioFile,
         video: VideoFile,
         anyfiles: List[MediaFile],
-        a_base_model: Optional[MoreParams],
+        #a_base_model: Optional[MoreParams],
         anint2: int,
         anyImages: List[ImageFile] = ["default_value"],
         astring: str = "master_of_desaster",
@@ -44,7 +44,7 @@ def test_mixed_media(
     ):
     content_one = anyfile1.to_base64()
     content_two = img.to_base64()
-    return content_two
+    return anyfile3, str, content_one, content_two, anyfiles
 
 @app.task_endpoint("test_single_file_upload")
 def test_single_file_upload(
