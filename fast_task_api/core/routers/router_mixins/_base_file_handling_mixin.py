@@ -3,7 +3,7 @@ import inspect
 from types import UnionType
 from typing import Any, Union, get_type_hints, get_args, get_origin, Callable, List, Type
 
-from media_toolkit import media_from_any, MediaFile
+from media_toolkit import media_from_any, MediaFile, MediaList
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
 
 
@@ -55,9 +55,24 @@ class _BaseFileHandlingMixin:
         """
         # Handle Union/UnionType with multiple types
         org_annotation = get_origin(annotation)
-        if org_annotation in [Union, UnionType, List, list]:
+        if org_annotation in [Union, UnionType]:
             media_file_types = [t for t in get_args(annotation) if is_param_media_toolkit_file(t)]
             return media_file_types[0] if media_file_types else MediaFile
+
+        # Handle List/MediaList types
+        if org_annotation in [List, list]:
+            sub_type = get_args(annotation)[0]
+            if is_param_media_toolkit_file(sub_type):
+                return sub_type
+            if get_origin(sub_type) == MediaList:
+                # Extract the generic type from MediaList[T]
+                generic_type = get_args(sub_type)[0]
+                return generic_type if is_param_media_toolkit_file(generic_type) else MediaFile
+
+        # Handle MediaList with generic type
+        if get_origin(annotation) == MediaList:
+            generic_type = get_args(annotation)[0]
+            return generic_type if is_param_media_toolkit_file(generic_type) else MediaFile
 
         # Direct media file type
         return annotation if is_param_media_toolkit_file(annotation) else MediaFile
@@ -97,6 +112,12 @@ class _BaseFileHandlingMixin:
         try:
             # Determine target type for conversion
             target_type = self._get_media_target_type(annotation)
+
+            # Handle MediaList types
+            if get_origin(annotation) == MediaList:
+                generic_type = get_args(annotation)[0]
+                if is_param_media_toolkit_file(generic_type):
+                    target_type = generic_type
 
             # Attempt conversion
             return media_from_any(

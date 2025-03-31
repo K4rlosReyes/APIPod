@@ -1,14 +1,13 @@
-import functools
 import inspect
 from types import UnionType
-from typing import Any, Union, get_type_hints, get_args, get_origin, Callable, List, Optional
-from fastapi import HTTPException, Body
+from typing import Any, Union, get_type_hints, get_args, get_origin, Callable, List
+from fastapi import Body
 from fast_task_api.compatibility.LimitedUploadFile import LimitedUploadFile
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
-from fast_task_api.core.job.job_result import FileModel, JobResult
+from fast_task_api.core.job.job_result import FileModel
 from fast_task_api.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
 from fast_task_api.core.utils import get_func_signature, replace_func_signature
-from media_toolkit import media_from_any, MediaFile
+from media_toolkit import MediaList
 
 
 class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
@@ -26,6 +25,7 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
         Needs to be done in factory function, because creating it directly causes pydantic errors
         """
         max_size_mb = max_size_mb if max_size_mb is not None else self.max_upload_file_size_mb
+
         class LimitedUploadFileWithMaxSize(LimitedUploadFile):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, max_size=max_size_mb, **kwargs)
@@ -51,6 +51,16 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             if is_param_media_toolkit_file(sub_type) or (
                     inspect.isclass(annotation) and issubclass(annotation, FileModel)):
                 return List[Union[_limited_upload_file, FileModel, str]]
+            # Handle MediaList with generic type
+            if get_origin(sub_type) == MediaList:
+                generic_type = get_args(sub_type)[0]
+                if is_param_media_toolkit_file(generic_type):
+                    return List[Union[_limited_upload_file, FileModel, str]]
+        # Handle direct MediaList with generic type
+        elif get_origin(annotation) == MediaList:
+            generic_type = get_args(annotation)[0]
+            if is_param_media_toolkit_file(generic_type):
+                return Union[_limited_upload_file, FileModel, str]
 
         return annotation
 

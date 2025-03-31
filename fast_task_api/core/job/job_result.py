@@ -1,12 +1,13 @@
 import gzip
 from io import BytesIO
-from typing import Optional, Union, Any, List
+from typing import Optional, Union, List, Any
 
 from pydantic import BaseModel, AnyUrl
 
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
 from fast_task_api.core.job.base_job import JOB_STATUS, BaseJob
 from fast_task_api.settings import DEFAULT_DATE_TIME_FORMAT
+from media_toolkit import MediaList
 
 
 class FileModel(BaseModel):
@@ -44,8 +45,40 @@ class JobResult(BaseModel):
 class JobResultFactory:
 
     @staticmethod
+    def _serialize_result(data: Any) -> Union[FileModel, List[FileModel], List, str, None]:
+        def convert_media_list(media_list: MediaList) -> List:
+            """Convert a MediaList to a list of FileModels or original items"""
+            json_list = media_list.to_json()
+            return [
+                FileModel(**item) if isinstance(item, dict) else item
+                for item in json_list
+            ]
+
+        # Handle single MediaList or MediaFile
+        if is_param_media_toolkit_file(data):
+            if isinstance(data, MediaList):
+                return convert_media_list(data)
+            return FileModel(**data.to_json())
+
+        # Handle list of MediaLists/MediaFiles/other items
+        if isinstance(data, list):
+            result = []
+            for item in data:
+                if isinstance(item, MediaList):
+                    result.append(convert_media_list(item))
+                elif is_param_media_toolkit_file(item):
+                    result.append(FileModel(**item.to_json()))
+                else:
+                    result.append(item)
+            return result
+
+        return data
+
+    @staticmethod
     def from_base_job(ij: BaseJob) -> JobResult:
-        format_date = lambda date: date.strftime(DEFAULT_DATE_TIME_FORMAT) if date else None
+        def format_date(date):
+            return date.strftime(DEFAULT_DATE_TIME_FORMAT) if date else None
+
         created_at = format_date(ij.created_at)
         queued_at = format_date(ij.queued_at)
         execution_started_at = format_date(ij.execution_started_at)
@@ -53,14 +86,7 @@ class JobResultFactory:
 
         # if the internal job returned a media-toolkit file, convert it to a json serializable FileModel
         result = ij.result
-        if is_param_media_toolkit_file(ij.result):
-            result = FileModel(**result.to_json())
-        elif isinstance(ij.result, list):
-            result = [
-                FileModel(**r.to_json()) if is_param_media_toolkit_file(r) else r
-                for r in ij.result
-            ]
-
+        result = JobResultFactory._serialize_result(result)
 
         # Job_status is an Enum, convert it to a string to return it as json
         status = ij.status
@@ -69,7 +95,7 @@ class JobResultFactory:
 
         try:
             jp = JobProgress(progress=ij.job_progress._progress, message=ij.job_progress._message)
-        except Exception as e:
+        except Exception:
             jp = JobProgress(progress=0.0, message='')
 
         return JobResult(
@@ -95,7 +121,6 @@ class JobResultFactory:
         # Retrieve the gzipped data
         return gzip_buffer.getvalue()
 
-
     @staticmethod
     def job_not_found(job_id: str) -> JobResult:
         return JobResult(
@@ -103,4 +128,3 @@ class JobResultFactory:
             status=JOB_STATUS.FAILED,
             error="Job not found."
         )
-
