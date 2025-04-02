@@ -6,7 +6,7 @@ from typing import Generic, Dict, Optional, TypeVar
 
 from fast_task_api.core.job_store import JobStore
 from fast_task_api.core.job.base_job import BaseJob, JOB_STATUS
-from fast_task_api.core.utils import get_func_signature
+import inspect
 
 T = TypeVar('T', bound=BaseJob)
 
@@ -119,7 +119,7 @@ class JobQueue(Generic[T]):
         #    self._complete_job(job_id)
 
     def _inject_job_progress(self, job: T) -> T:
-        sig = get_func_signature(job.job_function)
+        sig = inspect.signature(job.job_function)
 
         job_progress_params = [
             p for p in sig.parameters.values()

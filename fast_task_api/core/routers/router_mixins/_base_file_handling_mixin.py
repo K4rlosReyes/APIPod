@@ -1,10 +1,11 @@
 import functools
 import inspect
 from types import UnionType
-from typing import Any, Union, get_type_hints, get_args, get_origin, Callable, List, Type
+from typing import Any, Union, get_args, get_origin, Callable, List, Type
 
-from media_toolkit import media_from_any, MediaFile, MediaList
+from media_toolkit import media_from_any, MediaFile, MediaList, MediaDict
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
+from fast_task_api.core.job.job_result import FileModel
 
 
 class _BaseFileHandlingMixin:
@@ -29,16 +30,23 @@ class _BaseFileHandlingMixin:
     def _is_media_param(self, annotation: Any) -> bool:
         """
         Determine if a parameter is a media-related type.
+        This is different to _is_param_media_toolkit_file because it also checks for MediaList, Union, UnionType, List, list
 
         Args:
-            annotation: Type annotation to check
+            annotation: Type annotation to check or inspect.Parameter object
 
         Returns:
             bool: True if the parameter is a media-related type
         """
-        # Check for Union/UnionType with media file types
+        if annotation == MediaList:
+            return True
+        
+        if inspect.isclass(annotation) and issubclass(annotation, FileModel):
+            return True
+            
+        # Check for Union/UnionType with media file types included
         if get_origin(annotation) in [Union, UnionType, List, list]:
-            return any(is_param_media_toolkit_file(arg) for arg in get_args(annotation))
+            return any(self._is_media_param(arg) for arg in get_args(annotation))
 
         # Direct media file type check
         return is_param_media_toolkit_file(annotation)
@@ -52,51 +60,85 @@ class _BaseFileHandlingMixin:
 
         Returns:
             Type: Target MediaFile type
+
+        Raises:
+            ValueError: If invalid type combinations are detected
         """
+        # Handle None/Any types
+        if annotation is None or annotation == Any:
+            return MediaFile
+
         # Handle Union/UnionType with multiple types
         org_annotation = get_origin(annotation)
         if org_annotation in [Union, UnionType]:
-            media_file_types = [t for t in get_args(annotation) if is_param_media_toolkit_file(t)]
-            return media_file_types[0] if media_file_types else MediaFile
+            args = get_args(annotation)
 
-        # Handle List/MediaList types
-        if org_annotation in [List, list]:
-            sub_type = get_args(annotation)[0]
-            if is_param_media_toolkit_file(sub_type):
-                return sub_type
-            if get_origin(sub_type) == MediaList:
-                # Extract the generic type from MediaList[T]
-                generic_type = get_args(sub_type)[0]
-                return generic_type if is_param_media_toolkit_file(generic_type) else MediaFile
+            # Check for MediaDict in Union types
+            if any(arg == MediaDict for arg in args):
+                raise ValueError("Use MediaList for declaring upload files instead of MediaDict")
+
+            # Handle Union with MediaList
+            media_list_types = [t for t in args if t == MediaList]
+            if len(media_list_types) > 1:
+                return MediaList
+            elif len(media_list_types) == 1:
+                return media_list_types[0]  # Deliver the first one with the specified generyc type
+            
+            # Handle Union with MediaFile types
+            media_file_types = [t for t in args if is_param_media_toolkit_file(t)]
+            if media_file_types and len(media_file_types) == 1:
+                return media_file_types[0]
+
+            return MediaFile
 
         # Handle MediaList with generic type
-        if get_origin(annotation) == MediaList:
-            generic_type = get_args(annotation)[0]
-            return generic_type if is_param_media_toolkit_file(generic_type) else MediaFile
+        if org_annotation == MediaList:
+            generic_type = get_args(annotation)
+            if not generic_type:
+                return MediaList
+
+            # Check for nested MediaList
+            if any(t == MediaList for t in generic_type):
+                raise ValueError("Nesting of MediaList is not supported")
+
+            # Extract specific MediaFile type if present
+            media_list_types = [t for t in generic_type if is_param_media_toolkit_file(t)]
+            if len(media_list_types) > 1:
+                return MediaList
+            elif len(media_list_types) == 1:
+                return media_list_types[0]  # Deliver the first one with the specified generyc type
+            
+            return MediaList
+
+        # Handle List types
+        if org_annotation in [List, list]:
+            args = get_args(annotation)
+
+            if any(t == MediaList for t in args):
+                raise ValueError("Nesting of MediaFiles List[MediaList] is not supported")
+
+            if any(t == list and self._is_media_param(t) for t in args):
+                raise ValueError("Nesting of MediaFiles List[List[MediaFile]] is not supported")
+
+            # Check for MediaDict
+            if any(t == MediaDict for t in args):
+                raise ValueError("Use MediaList for declaring upload files instead of MediaDict")
+
+            # Extract MediaFile types
+            media_file_types = [t for t in args if is_param_media_toolkit_file(t)]
+            if media_file_types and len(media_file_types) == 1:
+                return MediaList[media_file_types[0]]
+            return MediaList
 
         # Direct media file type
-        return annotation if is_param_media_toolkit_file(annotation) else MediaFile
+        if is_param_media_toolkit_file(annotation):
+            return annotation
+
+        return MediaFile
 
     def _convert_param_to_media_file(self, param_value: Any, annotation: Any) -> Any:
         """
-        Convert a parameter to the appropriate MediaFile type.
-
-        Args:
-            param_value: Value to convert
-            annotation: Type annotation guiding conversion
-
-        Returns:
-            Converted MediaFile or original value
-        """
-        # Handle list inputs
-        if isinstance(param_value, list):
-            return [self._convert_single_param(val, annotation) for val in param_value]
-
-        return self._convert_single_param(param_value, annotation)
-
-    def _convert_single_param(self, param_value: Any, annotation: Any) -> Any:
-        """
-        Convert a single parameter to MediaFile, with fallback mechanisms.
+        Convert a parameter to MediaFile, with fallback mechanisms.
 
         Args:
             param_value: Value to convert
@@ -112,12 +154,6 @@ class _BaseFileHandlingMixin:
         try:
             # Determine target type for conversion
             target_type = self._get_media_target_type(annotation)
-
-            # Handle MediaList types
-            if get_origin(annotation) == MediaList:
-                generic_type = get_args(annotation)[0]
-                if is_param_media_toolkit_file(generic_type):
-                    target_type = generic_type
 
             # Attempt conversion
             return media_from_any(
@@ -135,23 +171,31 @@ class _BaseFileHandlingMixin:
             # If conversion fails for a specific type, raise an error
             raise ValueError(f"Invalid upload file format: {str(e)}")
 
-    def _get_media_params(self, func: Callable) -> dict:
+    def _sig_to_annotations(self, sig: Union[callable, inspect.Signature]) -> dict:
+        """
+        Convert a signature to a dictionary of parameter names and their annotations or get it from the function.
+        """
+        if callable(sig):
+            sig = inspect.signature(sig)
+
+        return {
+            param.name: param.annotation if getattr(param, 'annotation', None) != inspect.Parameter.empty else Any
+            for param in sig.parameters.values()
+        }
+
+    def _get_media_params(self, sig: Union[callable, inspect.Signature]) -> dict:
         """
         Identify media-related parameters in a function.
 
         Args:
-            func: Function to analyze
+            sig: Signature to analyze
 
         Returns:
-            dict: Media parameters with their original type annotations
+            dict: Dictionary mapping parameter names to their media-related type annotations
         """
-        type_hints = get_type_hints(func)
-        return {
-            param_name: type_hint
-            for param_name, type_hint in type_hints.items()
-            if self._is_media_param(type_hint)
-        }
-
+        annotations = self._sig_to_annotations(sig)
+        return {key: annot for key, annot in annotations.items() if self._is_media_param(annot)}
+        
     def _handle_file_uploads(self, func: Callable) -> Callable:
         """
         Wrap a function to handle file uploads and conversions.
@@ -162,13 +206,14 @@ class _BaseFileHandlingMixin:
         Returns:
             Wrapped function with file conversion logic
         """
-        media_params = self._get_media_params(func)
+        sig = inspect.signature(func)
+        media_params = self._get_media_params(sig)
+     
+        param_names = list(sig.parameters.keys())
 
         @functools.wraps(func)
         def file_upload_wrapper(*args, **kwargs):
             # Map positional arguments to parameter names
-            sig = inspect.signature(func)
-            param_names = list(sig.parameters.keys())
             named_args = {param_names[i]: arg for i, arg in enumerate(args) if i < len(param_names)}
             named_args.update(kwargs)
 

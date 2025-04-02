@@ -5,7 +5,7 @@ UploadDataTypes are used to ensure compatibility between different providers. Fo
 We will parse the data and always provide it as a binary object to your function.
 """
 from inspect import Parameter
-from media_toolkit import MediaFile, AudioFile, ImageFile, VideoFile, MediaList, MediaDict
+from media_toolkit import MediaFile, AudioFile, ImageFile, VideoFile
 try:
     from starlette.datastructures import UploadFile as StarletteUploadFile
 except ImportError:
@@ -39,7 +39,7 @@ def is_param_media_toolkit_file(param: Parameter):
 
     from fastapi import UploadFile as fastapiUploadFile
     type_check_list = [
-        MediaFile, ImageFile, AudioFile, VideoFile, MediaList, MediaDict,
+        MediaFile, ImageFile, AudioFile, VideoFile,
         StarletteUploadFile, fastapiUploadFile
     ]
     return check_if_param_is_in_data_types(param, type_check_list)
