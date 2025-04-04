@@ -13,8 +13,6 @@ from fast_task_api.core.routers.router_mixins._fast_api_file_handling_mixin impo
 from fast_task_api.core.utils import normalize_name
 from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
 
-import importlib.metadata
-
 
 class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin):
     """
@@ -99,8 +97,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         if not self.app.openapi_schema:
             self._orig_openapi_func()
 
-        version = importlib.metadata.version("fast-task-api")
-        self.app.openapi_schema["info"]["fast-task-api"] = version
+        self.app.openapi_schema["info"]["fast-task-api"] = self.version
         return self.app.openapi_schema
 
     def get_job(self, job_id: str, return_format: str = 'json', keep_alive: bool = False) -> JobResult:

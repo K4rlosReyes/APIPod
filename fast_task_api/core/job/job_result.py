@@ -14,6 +14,53 @@ class FileModel(BaseModel):
     file_name: str
     content_type: str
     content: Union[str, AnyUrl]  # base64 encoded or url
+    max_size_mb: Optional[float] = 4000
+
+    class Config:
+        schema_extra = {
+            "x-media-type": "MediaFile",
+            "example": {
+                "file_name": "example.csv",
+                "content_type": "text/csv",
+                "content": "https://example.com/example.csv"   # bytes, base64 encoded or url
+            }
+        }
+
+
+class ImageFileModel(FileModel):
+    class Config:
+        schema_extra = {
+            "x-media-type": "ImageFile",
+            "example": {
+                "file_name": "example.png",
+                "content_type": "image/png",
+                "content": "base64 encoded image data"
+            }
+        }
+
+
+class AudioFileModel(FileModel):
+    class Config:
+        schema_extra = {
+            "x-media-type": "AudioFile",
+            "example": {
+                "file_name": "example.mp3",
+                "content_type": "audio/mpeg",
+                "content": "base64 encoded audio data"
+            }
+        }
+
+
+class VideoFileModel(FileModel):
+    class Config:
+        schema_extra = {
+            "x-media-type": "VideoFile",
+            "example": {
+                "file_name": "example.mp4",
+                "content_type": "video/mp4",
+                "content": "base64 encoded video data"
+            }
+        }
 
 
 class JobProgress(BaseModel):

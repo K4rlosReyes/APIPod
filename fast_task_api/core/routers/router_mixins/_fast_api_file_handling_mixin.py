@@ -1,13 +1,13 @@
 import inspect
 from types import UnionType
-from typing import Any, Union, get_args, get_origin, Callable, List
+from typing import Any, Union, get_args, get_origin, Callable, List, Dict
 from fastapi import Body
 from fast_task_api.compatibility.LimitedUploadFile import LimitedUploadFile
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
-from fast_task_api.core.job.job_result import FileModel
+from fast_task_api.core.job.job_result import FileModel, ImageFileModel, AudioFileModel, VideoFileModel
 from fast_task_api.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
 from fast_task_api.core.utils import replace_func_signature
-from media_toolkit import MediaList, MediaDict
+from media_toolkit import MediaList, MediaDict, ImageFile, AudioFile, VideoFile, MediaFile
 
 
 class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
@@ -18,6 +18,7 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
     1. Convert function parameters to request body parameters
     2. Handle file uploads from various sources (UploadFile, FileModel, Base64, URLs)
     3. Convert MediaFile responses to FileModel for API documentation
+    4. Preserve original media type information in the OpenAPI schema via x-media-type metadata
     """
     def create_limited_upload_file(self, max_size_mb: float):
         """
@@ -32,22 +33,41 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
 
         return LimitedUploadFileWithMaxSize
 
+    def _get_file_model_annotation(self, arg: type, is_list: bool, max_upload_file_size_mb: float) -> Dict[str, Any]:
+        """
+        Extracts FileModel-like annotations from a type annotation.
+        
+        Args:
+            annotation: Type annotation to extract FileModel from
+        """
+        _limited_upload_file = self.create_limited_upload_file(max_upload_file_size_mb)
+        file_model_map = {
+            ImageFile: ImageFileModel,
+            AudioFile: AudioFileModel,
+            VideoFile: VideoFileModel
+        }
+
+        file_model_annot = file_model_map.get(arg, FileModel)
+
+        if is_list:
+            return Union[List[_limited_upload_file], List[file_model_annot]]
+        else:
+            return Union[_limited_upload_file, file_model_annot]
+
     def _get_media_file_annotation(self, annotation: Any, max_upload_file_size_mb: float):
         """
         Converts MediaFile-like annotations into appropriate UploadFile types for FastAPI.
+        Preserves original type information as metadata for OpenAPI schema.
         
         Args:
             annotation: Type annotation to convert
             max_upload_file_size_mb: Maximum file size in MB
             
         Returns:
-            Converted type annotation suitable for FastAPI
+            Tuple containing:
+            - Converted type annotation suitable for FastAPI
+            - Metadata dictionary with original type info (if applicable)
         """
-        # Define upload types in one place for better readability
-        _limited_upload_file = self.create_limited_upload_file(max_upload_file_size_mb)
-        file_up_annot = Union[_limited_upload_file, FileModel, str]
-        list_file_up_annot = Union[List[_limited_upload_file], List[file_up_annot]]
-        
         org_annotation = get_origin(annotation) or annotation
         
         # Handle Union/UnionType
@@ -60,16 +80,19 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
                 
             # Handle Union with MediaList
             if any(t == MediaList for t in args):
-                non_media_types = [t for t in args if not self._is_media_param(t)]
-                #  First other types to give FastAPI the correct order (Users can enter values instead of uploading fiels.)
+                non_media_params = [t for t in args if not self._is_media_param(t)]
+                list_file_up_annot = self._get_file_model_annotation(MediaFile, is_list=True, max_upload_file_size_mb=max_upload_file_size_mb)
+                #  First other types to give FastAPI the correct order (Users can enter values instead of uploading files)
                 if not self._is_media_param(args[0]):
-                    return Union[(*non_media_types, list_file_up_annot)]
-                return Union[(list_file_up_annot, *non_media_types)]
+                    return Union[(*non_media_params, list_file_up_annot)]
+                return Union[(list_file_up_annot, *non_media_params)]
                 
             # Handle Union with MediaFile types
             if any(self._is_media_param(t) for t in args):
-                non_media_types = [t for t in args if not self._is_media_param(t)]
-                return Union[(file_up_annot, *non_media_types)]
+                non_media_params = [t for t in args if not self._is_media_param(t)]
+                media_param = next(t for t in args if self._is_media_param(t))
+                file_up_annot = self._get_file_model_annotation(media_param, is_list=False, max_upload_file_size_mb=max_upload_file_size_mb)
+                return Union[(file_up_annot, *non_media_params)]
                 
             return annotation
             
@@ -80,7 +103,10 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             if any(t in (MediaList, MediaDict) for t in generic_type):
                 raise ValueError("Nesting of MediaList/MediaDict is not supported")
             
-            return list_file_up_annot
+            if len(generic_type) == 1 and self._is_media_param(generic_type[0]):
+                return self._get_file_model_annotation(generic_type[0], is_list=True, max_upload_file_size_mb=max_upload_file_size_mb)
+            
+            return self._get_file_model_annotation(MediaFile, is_list=True, max_upload_file_size_mb=max_upload_file_size_mb)
             
         # Handle List types
         if org_annotation in [List, list]:
@@ -99,14 +125,18 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
                 raise ValueError("Nesting of MediaList and List is not supported")
 
             non_media_params = [t for t in args if t not in media_params]
-            #  First other types to give FastAPI the correct order (Users can enter values instead of uploading fiels.)
+            #  First other types to give FastAPI the correct order (Users can enter values instead of uploading files)
             if not self._is_media_param(args[0]):
-                return Union[(*non_media_types, list_file_up_annot)]
+                return Union[(*non_media_params, list_file_up_annot)]
+            
+            if len(media_params) == 1:
+                return Union[(self._get_file_model_annotation(media_params[0], is_list=True, max_upload_file_size_mb=max_upload_file_size_mb), *non_media_params)]
+            
             return Union[(list_file_up_annot, *non_media_params)]
                 
         # Handle direct MediaFile types
         if is_param_media_toolkit_file(annotation):
-            return file_up_annot
+            return self._get_file_model_annotation(annotation, is_list=False, max_upload_file_size_mb=max_upload_file_size_mb)
         
         # Handle FileModel
         if inspect.isclass(annotation) and issubclass(annotation, FileModel):
@@ -118,7 +148,9 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
         """
         Moves all parameters to the request body.
         Replaces MediaFile parameters with UploadFile in the function signature.
-        This allows the API to accept file uploads from the client.
+        Preserves original type information as metadata for OpenAPI schema.
+        This allows the API to accept file uploads from the client while documenting
+        the expected file type correctly.
         """
         sig = inspect.signature(func)
         annotations = self._sig_to_annotations(sig)
@@ -136,10 +168,15 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             is_file_parameter = annotation != _file_annotation
             annotation = _file_annotation
 
-            # Move to body parameters
+            # Move to body parameters with appropriate metadata
             if not is_file_parameter:
-                field_definitions[name] = (annotation, Body(default=None if is_optional else default))
+                # For non-file parameters, we need to explicitly use Body() for proper rendering
+                field_definitions[name] = (
+                    annotation,
+                    Body(default=None if is_optional else default)
+                )
             else:
+                # Only include the original type metadata if it contains media type info
                 if is_optional:
                     file_args = get_args(_file_annotation)
                     # adding str, and None to the union to allow empty strings, and none values
@@ -152,6 +189,16 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
         return field_definitions
 
     def _update_signature(self, func: Callable, max_upload_file_size_mb: float = None) -> Callable:
+        """
+        Update the function signature with the converted parameter definitions.
+        
+        Args:
+            func: Function to update
+            max_upload_file_size_mb: Maximum file size in MB
+            
+        Returns:
+            Function with updated signature
+        """
         params_model = self._convert_params_to_body(func, max_upload_file_size_mb)
         parameters = [
             inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=param_type, default=default)
