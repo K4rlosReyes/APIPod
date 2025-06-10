@@ -4,7 +4,7 @@ from typing import Union, Callable
 
 from fastapi import APIRouter, FastAPI, Response
 
-from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST
+from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST, SERVER_DOMAIN
 from fast_task_api.CONSTS import SERVER_HEALTH
 from fast_task_api.core.job.job_result import JobResultFactory, JobResult
 from fast_task_api.core.routers._socaity_router import _SocaityRouter
@@ -120,8 +120,8 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             return JobResultFactory.job_not_found(job_id)
 
         ret_job = JobResultFactory.from_base_job(base_job)
-        ret_job.refresh_job_url = f"/status?job_id={ret_job.id}"
-        ret_job.cancel_job_url = f"/cancel?job_id={ret_job.id}"
+        ret_job.refresh_job_url = f"{SERVER_DOMAIN}/status?job_id={ret_job.id}"
+        ret_job.cancel_job_url = f"{SERVER_DOMAIN}/cancel?job_id={ret_job.id}"
 
         if return_format != 'json':
             ret_job = JobResultFactory.gzip_job_result(ret_job)
