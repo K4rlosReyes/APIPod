@@ -269,8 +269,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin):
             # remove job_progress from the function signature to display nice for fastapi
             job_progress_removed = self._remove_job_progress_from_signature(queue_decorated)
             # modify file uploads for compatibility reasons
-            file_upload_modified = self._handle_file_uploads(job_progress_removed,
-                                                             max_upload_file_size_mb=max_upload_file_size_mb)
+            file_upload_modified = self._handle_file_uploads(job_progress_removed, max_upload_file_size_mb=max_upload_file_size_mb)
             # modify file responses so that functions can return multimodal files.
             # file_response_modified = self._handle_file_responses(file_upload_modified)
             # add the route to fastapi

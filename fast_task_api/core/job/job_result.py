@@ -42,7 +42,6 @@ class JobResult(BaseModel):
 
 
 class JobResultFactory:
-
     @staticmethod
     def from_base_job(ij: BaseJob) -> JobResult:
         format_date = lambda date: date.strftime(DEFAULT_DATE_TIME_FORMAT) if date else None
@@ -60,7 +59,6 @@ class JobResultFactory:
                 FileResult(**r.to_json()) if is_param_media_toolkit_file(r) else r
                 for r in ij.result
             ]
-
 
         # Job_status is an Enum, convert it to a string to return it as json
         status = ij.status
