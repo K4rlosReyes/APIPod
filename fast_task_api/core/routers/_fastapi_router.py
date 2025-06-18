@@ -192,7 +192,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
             # Add route to FastAPI
             return fastapi_route_decorator(upload_enabled)
-           
+
         return decorator
 
     def get(self, path: str = None, queue_size: int = 100, *args, **kwargs):

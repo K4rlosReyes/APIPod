@@ -28,7 +28,7 @@ def prompt_helper(job_progress: JobProgress, text: str, enhancement: int = 1):
     Submit a prompt and we will improve its quality to make the best out of your images.
     :return: a super enhanced prompt
     """
-    job_progress.set_status(0.1, f"enhancing your prompt with fancy addons like 8k, ultra high res")
+    job_progress.set_status(0.1, "enhancing your prompt with fancy addons like 8k, ultra high res")
     time.sleep(1)
     text += " 8k, ultra high res, perfect anatomy"
     job_progress.set_status(0.5, f"I am working on it. Lots of work to do {enhancement}")

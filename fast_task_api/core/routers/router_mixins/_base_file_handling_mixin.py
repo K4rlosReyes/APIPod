@@ -41,10 +41,10 @@ class _BaseFileHandlingMixin:
         """
         if annotation == MediaList:
             return True
-        
+
         if inspect.isclass(annotation) and issubclass(annotation, FileModel):
             return True
-            
+
         # Check for Union/UnionType with media file types included
         if get_origin(annotation) in [Union, UnionType, List, list]:
             return any(self._is_media_param(arg) for arg in get_args(annotation))
@@ -74,18 +74,18 @@ class _BaseFileHandlingMixin:
 
         if org_annotation == MediaDict:
             raise ValueError("Use MediaList for declaring upload files instead of MediaDict")
-            
+
         if org_annotation in [Union, UnionType]:
             args = get_args(annotation)
 
             # resolve recursively
             resolved_args = [self._get_media_target_type(arg) for arg in args]
-            
+
             # if one of the args is a MediaList we need to treat it as a MediaList
             for arg in resolved_args:
                 if arg == MediaList:
                     return arg
-            
+
             # Handle Union with MediaFile types
             # we convert to the first provided MediaType
             media_file_types = [t for t in args if is_param_media_toolkit_file(t)]
@@ -111,7 +111,7 @@ class _BaseFileHandlingMixin:
                 return MediaList
             elif len(media_list_types) == 1:
                 return media_list_types[0]  # Deliver the first one with the specified generyc type
-            
+
             return MediaList
 
         # Handle List types
