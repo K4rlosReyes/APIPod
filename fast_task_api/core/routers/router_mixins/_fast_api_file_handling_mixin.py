@@ -1,7 +1,7 @@
 import inspect
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, Callable, List, Dict
-from fastapi import Body
+from fastapi import Form
 from fast_task_api.compatibility.LimitedUploadFile import LimitedUploadFile
 from fast_task_api.compatibility.upload import is_param_media_toolkit_file
 from fast_task_api.core.job.job_result import FileModel, ImageFileModel, AudioFileModel, VideoFileModel
@@ -193,22 +193,17 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             annotation = _file_annotation
 
             # Move to body parameters with appropriate metadata
+            if is_file_parameter and is_optional:
+                file_args = get_args(_file_annotation)
+                # adding str, and None to the union to allow empty strings, and none values
+                annotation = Union[(*file_args, None)]
+                default = default if default is not ... else None
+            
             if not is_file_parameter:
-                # For non-file parameters, we need to explicitly use Body() for proper rendering
-                field_definitions[name] = (
-                    annotation,
-                    Body(default=None if is_optional else default)
-                )
-            else:
-                # Only include the original type metadata if it contains media type info
-                if is_optional:
-                    file_args = get_args(_file_annotation)
-                    # adding str, and None to the union to allow empty strings, and none values
-                    annotation = Union[(*file_args, None)]
-
-                    field_definitions[name] = (annotation, default if default is not ... else None)
-                else:
-                    field_definitions[name] = (annotation, default)
+                default = None if is_optional else default
+                default = Form(default=default)
+ 
+            field_definitions[name] = (annotation, default)
 
         parameters = [
             inspect.Parameter(name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=param_type, default=default)
