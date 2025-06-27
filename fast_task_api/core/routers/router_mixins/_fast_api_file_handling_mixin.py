@@ -183,7 +183,7 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
                 continue
             annotation = annotations.get(name, Any)
             default = param.default if param.default != inspect.Parameter.empty else ...
-            
+
             # Check if the parameter was originally Optional
             is_optional = get_origin(annotation) in {Union, UnionType} and type(None) in get_args(annotation)
 
@@ -198,11 +198,11 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
                 # adding str, and None to the union to allow empty strings, and none values
                 annotation = Union[(*file_args, None)]
                 default = default if default is not ... else None
-            
+
             if not is_file_parameter:
                 default = None if is_optional else default
                 default = Form(default=default)
- 
+
             field_definitions[name] = (annotation, default)
 
         parameters = [
@@ -210,7 +210,7 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             for name, (param_type, default) in field_definitions.items()
         ]
         parameters.extend(fastapi_dependencies_parameters)
-        
+
         return parameters
 
     def _update_signature(self, func: Callable, max_upload_file_size_mb: float = None) -> Callable:
