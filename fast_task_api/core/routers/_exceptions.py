@@ -19,3 +19,9 @@ class FileUploadException(JobException):
             message = f"FileUploadException: {message}"
 
         super().__init__(message)
+
+
+class InsufficientBalanceException(JobException):
+    """ Gets raised when a job is rejected because the user has insufficient balance """
+    def __init__(self, message: str = "Insufficient balance"):
+        super().__init__(message)

@@ -51,7 +51,7 @@ class JobQueue(Generic[T]):
     def _validate_job_before_add(self, job: BaseJob) -> Tuple[bool, str]:
         valid, message = self._validate_queue_size(job)
         if not valid:
-            return True, message
+            return False, message
 
         return True, None
 
@@ -64,6 +64,9 @@ class JobQueue(Generic[T]):
             job.status = JOB_STATUS.FAILED
             job.error = message
             job.job_progress.set_status(1.0, message)
+            # if not added to completed job, some clients fail with job not found on polling.
+            self.job_store._add_job(job)
+            self._complete_job(job=job, final_state=JOB_STATUS.FAILED) 
             return job
 
         job.status = JOB_STATUS.QUEUED
