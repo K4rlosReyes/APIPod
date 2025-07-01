@@ -161,7 +161,7 @@ class _BaseFileHandlingMixin:
 
             # Attempt conversion
             return media_from_any(
-                file=param_value,
+                data=param_value,
                 type_hint=target_type,
                 use_temp_file=True,
                 temp_dir=None,

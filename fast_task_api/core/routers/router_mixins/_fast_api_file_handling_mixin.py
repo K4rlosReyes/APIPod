@@ -69,15 +69,15 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             - Metadata dictionary with original type info (if applicable)
         """
         org_annotation = get_origin(annotation) or annotation
-        
+
         # Handle Union/UnionType
         if org_annotation in [Union, UnionType]:
             args = get_args(annotation)
-            
+
             # Check for MediaDict
             if any(arg == MediaDict for arg in args):
                 raise ValueError("Use MediaList for declaring upload files instead of MediaDict")
-                
+
             # Handle Union with MediaList
             if any(t == MediaList for t in args):
                 non_media_params = [t for t in args if not self._is_media_param(t)]
@@ -86,16 +86,20 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
                 if not self._is_media_param(args[0]):
                     return Union[(*non_media_params, list_file_up_annot)]
                 return Union[(list_file_up_annot, *non_media_params)]
-                
+
             # Handle Union with MediaFile types
             if any(self._is_media_param(t) for t in args):
                 non_media_params = [t for t in args if not self._is_media_param(t)]
-                media_param = next(t for t in args if self._is_media_param(t))
-                file_up_annot = self._get_file_model_annotation(media_param, is_list=False, max_upload_file_size_mb=max_upload_file_size_mb)
-                return Union[(file_up_annot, *non_media_params)]
-                
+                media_params = [t for t in args if self._is_media_param(t)]
+                resolved_mps = []
+                for mp in media_params:
+                    rmp = self._get_file_model_annotation(mp, is_list=False, max_upload_file_size_mb=max_upload_file_size_mb)
+                    resolved_mps.append(rmp)
+
+                return Union[(*resolved_mps, *non_media_params)]
+
             return annotation
-            
+
         # Handle MediaList
         if org_annotation == MediaList:
             generic_type = get_args(annotation)
@@ -140,7 +144,7 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
         
         # Handle FileModel
         if inspect.isclass(annotation) and issubclass(annotation, FileModel):
-            return file_up_annot
+            return annotation
             
         return annotation
 
