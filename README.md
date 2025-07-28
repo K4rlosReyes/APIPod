@@ -66,13 +66,10 @@ The syntax is oriented by the simplicity of fastapi. Other hazards are taken car
 The code is fast, lightweight, flexible and pure python.
 
 ## Installation 
-You can install the package with PIP, or clone the repository.
+You can install the package with PIP (PyPi), or clone the repository.
 
 ```python
-# install from pypi
 pip install fast-task-api
-# install from github for the newest version
-pip install git+git://github.com/SocAIty/FastTaskAPI
 ```
 
 # How to use
