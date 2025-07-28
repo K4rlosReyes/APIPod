@@ -213,13 +213,13 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         """
         Create a function compatible with FastAPI OpenAPI generation by applying 
         the same conversion logic as the FastAPI mixin, but without runtime dependencies.
-        
+
         This generates the rich schema with proper file upload handling.
-        
+
         Args:
             func: Original function to convert
             max_upload_file_size_mb: Maximum file size in MB
-            
+
         Returns:
             Function with FastAPI-compatible signature for OpenAPI generation
         """
@@ -261,8 +261,8 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
                 try:
                     safe_func = self._create_openapi_safe_function(func)
                     fastapi_routes.append(APIRoute(
-                        path=f"/{path.strip('/')}", 
-                        endpoint=safe_func, 
+                        path=f"/{path.strip('/')}",
+                        endpoint=safe_func,
                         methods=["POST"],
                         response_model=None
                     ))

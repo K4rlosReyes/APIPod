@@ -69,6 +69,10 @@ def normalize_name(name: str, preserve_paths: bool = False) -> str:
     Returns:
         str: A Python module-safe, normalized string.
     """
+    # skip normalization for some standard routes
+    # if "openapi.json" in name:
+    #     return name
+        
     name = normalize_identifier(
         original=name,
         replacement_char='-',
