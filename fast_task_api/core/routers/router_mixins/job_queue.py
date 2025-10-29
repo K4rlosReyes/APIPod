@@ -66,7 +66,7 @@ class JobQueue(Generic[T]):
             job.job_progress.set_status(1.0, message)
             # if not added to completed job, some clients fail with job not found on polling.
             self.job_store._add_job(job)
-            self._complete_job(job=job, final_state=JOB_STATUS.FAILED) 
+            self._complete_job(job=job, final_state=JOB_STATUS.FAILED)
             return job
 
         job.status = JOB_STATUS.QUEUED
@@ -197,14 +197,13 @@ class JobQueue(Generic[T]):
                 self._job_threads[job.id] = thread
                 thread.start()
 
-    def get_job(self, job_id: str, keep_alive: bool = False) -> Optional[T]:
+    def get_job(self, job_id: str) -> Optional[T]:
         job = self.job_store.get_job(job_id)
         if not job:
             return None
 
         if job and self.job_store.is_completed(job.id):  # job.status in {JOB_STATUS.FINISHED, JOB_STATUS.FAILED, JOB_STATUS.TIMEOUT}:
-            if not keep_alive:
-                self._remove_job(job)
+            self._remove_job(job)
         return job
 
     def shutdown(self) -> None:

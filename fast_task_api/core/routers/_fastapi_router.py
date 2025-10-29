@@ -1,7 +1,6 @@
 import functools
 import inspect
 from typing import Union, Callable
-
 from fastapi import APIRouter, FastAPI, Response
 
 from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST, SERVER_DOMAIN
@@ -102,14 +101,13 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         self.app.openapi_schema["info"]["fast-task-api"] = self.version
         return self.app.openapi_schema
 
-    def get_job(self, job_id: str, return_format: str = 'json', keep_alive: bool = False) -> JobResult:
+    def get_job(self, job_id: str, return_format: str = 'json') -> JobResult:
         """
         Get the status and result of a job.
 
         Args:
             job_id: The ID of the job
             return_format: Response format ('json' or 'gzipped')
-            keep_alive: If True, job result is kept in memory/disk
 
         Returns:
             JobResult with status and results
@@ -117,7 +115,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         # sometimes job-id is inserted with leading " or other unwanted symbols. Remove those.
         job_id = job_id.strip().strip("\"").strip("\'").strip('?').strip("#")
 
-        base_job = self.job_queue.get_job(job_id, keep_alive=keep_alive)
+        base_job = self.job_queue.get_job(job_id)
         if base_job is None:
             return JobResultFactory.job_not_found(job_id)
 
@@ -131,9 +129,35 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         return ret_job
 
     @functools.wraps(APIRouter.api_route)
-    def endpoint(self, path: str, methods: list[str] = None, *args, **kwargs):
-        def decorator(func):
-            self.api_route(path=path, methods=methods)(func)
+    def endpoint(self, path: str, methods: list[str] = None, max_upload_file_size_mb: int = None, *args, **kwargs):
+        """
+        Endpoint with file upload support; without job queue functionality.
+        """
+        # normalize path
+        path = normalize_name(path, preserve_paths=True)
+        if len(path) > 0 and path[0] != "/":
+            path = "/" + path
+
+        # FastAPI route decorator
+        fastapi_route_decorator = self.api_route(
+            path=path,
+            methods=["POST"] if methods is None else methods,
+            *args,
+            **kwargs
+        )
+
+        def file_result_modification_decorator(func: Callable) -> Callable:
+            """Wrap endpoint result and serialize it."""
+            @functools.wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                return JobResultFactory._serialize_result(result)
+            return sync_wrapper
+
+        def decorator(func: Callable) -> Callable:
+            result_modified = file_result_modification_decorator(func)
+            with_file_upload_signature = self._prepare_func_for_media_file_upload_with_fastapi(result_modified, max_upload_file_size_mb)
+            return fastapi_route_decorator(with_file_upload_signature)
 
         return decorator
 

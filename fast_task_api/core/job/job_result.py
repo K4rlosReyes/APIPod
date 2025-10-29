@@ -104,6 +104,9 @@ class JobResultFactory:
         if isinstance(data, list):
             return [JobResultFactory._serialize_result(item) for item in data]
 
+        if isinstance(data, dict):
+            return {key: JobResultFactory._serialize_result(value) for key, value in data.items()}
+
         return data
 
     @staticmethod

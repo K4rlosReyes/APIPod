@@ -38,5 +38,10 @@ def prompt_helper(job_progress: JobProgress, text: str, enhancement: int = 1):
     return f"Your enhanced prompt {text} is ready"
 
 
+@app.endpoint("/test_no_queue_endpoint", methods=["POST"], max_upload_file_size_mb=10)
+def test_single_file_upload(file1: ImageFile):
+    return file1
+
+
 # start and run the server
 app.start()

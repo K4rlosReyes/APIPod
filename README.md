@@ -24,15 +24,15 @@ Call the api and return a job id. Get the result with the job id later.</br>
 ## Table of contents
 
 Introduction
-- [Why is this useful?](#why-is-this-useful): A section explaining why you should use this package.
-- [What does this do?](#what-does-this-do): A section explaining the features of this package.
+- [Why is this useful?](#why-is-this-useful)
+- [What does this do?](#what-does-this-do)
 
 Get started:
-- [Installation](#installation): A section explaining how to install the package.
-- [First-steps](#how-to-use): Create your first service with the socaity router.
-- [Jobs and job queues](#jobs-and-job-queues): A section explaining how to use the job queue functionality.
-- [File uploads and files](#file-uploads-and-files): A section explaining how to use file uploads and files.
-- [Backends and deploying a service](#backends-and-deploying-a-service): Deploy serverless for example with runpod.
+- [Installation](#installation)
+- [First-steps](#how-to-use): Create your first service.
+- [Jobs and job queues](#jobs-and-job-queues)
+- [File uploads and files](#file-uploads-and-files)
+- [Backends and deploying a service](#backends-and-deploying-a-service): Deploy serverless with runpod.
 
 
 ## Why is this useful?
