@@ -11,10 +11,10 @@ from fast_task_api.core.routers.router_mixins._queue_mixin import _QueueMixin
 from fast_task_api.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
 from fast_task_api.core.utils import normalize_name
 from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
-from fast_task_api.core.routers.router_mixins._fast_api_exception_handling import FastAPIExceptionHandler
+from fast_task_api.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
 
 
-class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, FastAPIExceptionHandler):
+class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler):
     """
     FastAPI router extension that adds support for task endpoints.
 
@@ -64,10 +64,15 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                 contact={"name": "SocAIty", "url": "https://www.socaity.ai"}
             )
 
-        self.app = app
-        self.app.add_exception_handler(Exception, self.global_exception_handler)
+        self.app: FastAPI = app
         self.prefix = prefix
         self.add_standard_routes()
+
+        # excpetion handling
+        _FastAPIExceptionHandler.__init__(self, *args, **kwargs)
+        if not getattr(self.app.state, "_socaity_exception_handler_added", False):
+            self.app.add_exception_handler(Exception, self.global_exception_handler)
+            self.app.state._socaity_exception_handler_added = True
 
         # Save original OpenAPI function and replace it
         self._orig_openapi_func = self.app.openapi

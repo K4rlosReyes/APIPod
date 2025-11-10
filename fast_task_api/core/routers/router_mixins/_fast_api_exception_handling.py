@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fast_task_api.core.routers._exceptions import JobException
 
 
-class FastAPIExceptionHandler:
+class _FastAPIExceptionHandler:
     async def global_exception_handler(self, request: Request, exc: Exception):
         if isinstance(exc, JobException):
             # error was raised before the job_function was called. For example an upload failed or other problem.
