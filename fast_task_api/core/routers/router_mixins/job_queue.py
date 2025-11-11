@@ -73,7 +73,14 @@ class JobQueue(Generic[T]):
         job.queued_at = datetime.utcnow()
         self.job_store.add_to_queue(job)
 
+        # Check if worker thread is alive, if not create and start a new one
         if not self.worker_thread.is_alive():
+            # Join the dead thread to ensure proper cleanup before creating new one
+            try:
+                self.worker_thread.join(timeout=0.1)
+            except Exception:
+                pass  # Ignore join errors for dead threads
+            self.worker_thread = threading.Thread(target=self._process_jobs_in_background, daemon=True)
             self.worker_thread.start()
 
         return job
