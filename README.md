@@ -3,7 +3,7 @@
 
 <p align="center">
   <a href="https://www.socaity.com">
-    <img src="docs/example_images/socaity_router_icon.png" height="200" alt="APIPod Logo" />
+    <img src="docs/example_images/APIPod.png" height="200" alt="APIPod Logo" />
   </a>
 </p>
 
@@ -143,17 +143,17 @@ This is the simplest option.
 3.  Deploy on RunPod Serverless. 
     *   *APIPod acts as the handler, managing job inputs/outputs compatible with RunPod's API.*
 
-Make sure that the environment variables set to the following: ```FTAPI_DEPLOYMENT="serverless"``` and  ```FTAPI_BACKEND="runpod"```
+Make sure that the environment variables set to the following: ```APIPOD_DEPLOYMENT="serverless"``` and  ```APIPOD_BACKEND="runpod"```
 
 
 ## Debugging APIPod serverless
 You can configure your environment variables in order that APIPod acts as if it where deployed on socaity.ai or on runpod.
 ```bash
 # Deployment Mode
-ENV FTAPI_DEPLOYMENT="serverless" # Options: "localhost" (default), "serverless"
+ENV APIPOD_DEPLOYMENT="serverless" # Options: "localhost" (default), "serverless"
 
 # Backend Provider
-ENV FTAPI_BACKEND="runpod"      # Options: "fastapi" (default), "runpod"
+ENV APIPOD_BACKEND="runpod"      # Options: "fastapi" (default), "runpod"
 ```
 
 

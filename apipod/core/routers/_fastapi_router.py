@@ -3,15 +3,15 @@ import inspect
 from typing import Union, Callable
 from fastapi import APIRouter, FastAPI, Response
 
-from fast_task_api.settings import FTAPI_PORT, FTAPI_HOST, SERVER_DOMAIN
-from fast_task_api.CONSTS import SERVER_HEALTH
-from fast_task_api.core.job.job_result import JobResultFactory, JobResult
-from fast_task_api.core.routers._socaity_router import _SocaityRouter
-from fast_task_api.core.routers.router_mixins._queue_mixin import _QueueMixin
-from fast_task_api.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
-from fast_task_api.core.utils import normalize_name
-from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
-from fast_task_api.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
+from apipod.settings import APIPOD_PORT, APIPOD_HOST, SERVER_DOMAIN
+from apipod.CONSTS import SERVER_HEALTH
+from apipod.core.job.job_result import JobResultFactory, JobResult
+from apipod.core.routers._socaity_router import _SocaityRouter
+from apipod.core.routers.router_mixins._queue_mixin import _QueueMixin
+from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
+from apipod.core.utils import normalize_name
+from apipod.core.routers.router_mixins.job_queue import JobQueue
+from apipod.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
 
 
 class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler):
@@ -24,7 +24,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
     def __init__(
             self,
-            title: str = "FastTaskAPI",
+            title: str = "APIPod",
             summary: str = "Create web-APIs for long-running tasks",
             app: Union[FastAPI, None] = None,
             prefix: str = "",  # "/api",
@@ -95,7 +95,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
     def custom_openapi(self):
         """
-        Customize OpenAPI schema with FastTaskAPI version information.
+        Customize OpenAPI schema with APIPod version information.
 
         Returns:
             Modified OpenAPI schema
@@ -103,7 +103,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         if not self.app.openapi_schema:
             self._orig_openapi_func()
 
-        self.app.openapi_schema["info"]["fast-task-api"] = self.version
+        self.app.openapi_schema["info"]["apipod"] = self.version
         return self.app.openapi_schema
 
     def get_job(self, job_id: str, return_format: str = 'json') -> JobResult:
@@ -254,7 +254,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         """
         return self.task_endpoint(path=path, queue_size=queue_size, methods=["POST"], *args, **kwargs)
 
-    def start(self, port: int = FTAPI_PORT, host: str = FTAPI_HOST, *args, **kwargs):
+    def start(self, port: int = APIPOD_PORT, host: str = APIPOD_HOST, *args, **kwargs):
         """
         Start the FastAPI server.
 
@@ -274,7 +274,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         # Print help information
         print_host = "localhost" if host == "0.0.0.0" or host is None else host
         print(
-            f"FastTaskAPI {self.app.title} started. Use http://{print_host}:{port}/docs to see the API documentation.")
+            f"APIPod {self.app.title} started. Use http://{print_host}:{port}/docs to see the API documentation.")
 
         # Start server
         import uvicorn

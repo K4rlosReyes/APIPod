@@ -3,7 +3,7 @@ from typing import Optional
 from uuid import uuid4
 from enum import Enum
 
-from fast_task_api.core.job.job_progress import JobProgress
+from apipod.core.job.job_progress import JobProgress
 
 
 class JOB_STATUS(Enum):

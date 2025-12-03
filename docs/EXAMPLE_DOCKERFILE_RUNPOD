@@ -24,17 +24,17 @@ WORKDIR /
 RUN pip install runpod>=1.7.7 && \
 	pip install . --no-cache
 
-# Configure that fast-task-api shall be started in "runpod" mode and run "serverless"
+# Configure that apipod shall be started in "runpod" mode and run "serverless"
 
-ENV FTAPI_BACKEND="runpod"
-ENV FTAPI_DEPLOYMENT="serverless"
+ENV APIPOD_BACKEND="runpod"
+ENV APIPOD_DEPLOYMENT="serverless"
 
 ARG port=8080
-ENV FTAPI_PORT=$port
+ENV APIPOD_PORT=$port
 # allows the docker container to use the port
 EXPOSE $port
 # allows any IP from the computer to connect to the host
-ENV FTAPI_HOST="0.0.0.0"
+ENV APIPOD_HOST="0.0.0.0"
 
 # Set the entrypoint with explicit host and port binding
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

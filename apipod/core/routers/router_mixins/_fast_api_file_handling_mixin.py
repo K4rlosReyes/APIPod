@@ -2,17 +2,17 @@ import inspect
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, Callable, List, Dict
 from fastapi import Form
-from fast_task_api.compatibility.LimitedUploadFile import LimitedUploadFile
-from fast_task_api.compatibility.upload import is_param_media_toolkit_file
-from fast_task_api.core.job.job_result import FileModel, ImageFileModel, AudioFileModel, VideoFileModel
-from fast_task_api.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
-from fast_task_api.core.utils import replace_func_signature
+from apipod.compatibility.LimitedUploadFile import LimitedUploadFile
+from apipod.compatibility.upload import is_param_media_toolkit_file
+from apipod.core.job.job_result import FileModel, ImageFileModel, AudioFileModel, VideoFileModel
+from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
+from apipod.core.utils import replace_func_signature
 from media_toolkit import MediaList, MediaDict, ImageFile, AudioFile, VideoFile, MediaFile
 
 
 class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
     """
-    Handles file uploads and parameter conversions for FastTaskAPI.
+    Handles file uploads and parameter conversions for APIPod.
 
     This mixin provides functionality to:
     1. Convert function parameters to request body parameters

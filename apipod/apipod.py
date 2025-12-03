@@ -1,14 +1,14 @@
-from fast_task_api.CONSTS import FTAPI_BACKENDS, FTAPI_DEPLOYMENTS
-from fast_task_api.settings import FTAPI_BACKEND, FTAPI_DEPLOYMENT
-from fast_task_api.core.routers._socaity_router import _SocaityRouter
-from fast_task_api.core.routers._runpod_router import SocaityRunpodRouter
-from fast_task_api.core.routers._fastapi_router import SocaityFastAPIRouter
+from apipod.CONSTS import APIPOD_BACKEND, APIPOD_DEPLOYMENT
+from apipod.settings import APIPOD_BACKEND, APIPOD_DEPLOYMENT
+from apipod.core.routers._socaity_router import _SocaityRouter
+from apipod.core.routers._runpod_router import SocaityRunpodRouter
+from apipod.core.routers._fastapi_router import SocaityFastAPIRouter
 from typing import Union
 
 
-def FastTaskAPI(
-        backend: Union[FTAPI_BACKENDS, str, object] = FTAPI_BACKEND,
-        deployment: Union[FTAPI_DEPLOYMENTS, str] = FTAPI_DEPLOYMENT,
+def APIPod(
+        backend: Union[APIPOD_BACKEND, str, object] = APIPOD_BACKEND,
+        deployment: Union[APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT,
         *args, **kwargs
 ) -> Union[_SocaityRouter, SocaityRunpodRouter, SocaityFastAPIRouter]:
     """
@@ -25,16 +25,16 @@ def FastTaskAPI(
     Returns: _SocaityRouter
     """
     if backend is None:
-        backend = FTAPI_BACKEND
+        backend = APIPOD_BACKEND
 
     if isinstance(backend, str):
-        backend = FTAPI_BACKENDS(backend)
+        backend = APIPOD_BACKEND(backend)
 
     backend_class = SocaityFastAPIRouter
-    if isinstance(backend, FTAPI_BACKENDS):
+    if isinstance(backend, APIPOD_BACKEND):
         class_map = {
-            FTAPI_BACKENDS.FASTAPI: SocaityFastAPIRouter,
-            FTAPI_BACKENDS.RUNPOD: SocaityRunpodRouter
+            APIPOD_BACKEND.FASTAPI: SocaityFastAPIRouter,
+            APIPOD_BACKEND.RUNPOD: SocaityRunpodRouter
         }
         if backend not in class_map:
             raise Exception(f"Backend {backend.value} not found")
@@ -44,10 +44,10 @@ def FastTaskAPI(
         backend_class = backend
 
     if deployment is None:
-        deployment = FTAPI_DEPLOYMENTS.LOCALHOST
-    deployment = FTAPI_DEPLOYMENTS(deployment) if type(deployment) is str else deployment
+        deployment = APIPOD_DEPLOYMENT.LOCALHOST
+    deployment = APIPOD_DEPLOYMENT(deployment) if type(deployment) is str else deployment
 
-    print(f"Init fast-task-api with backend {backend} in deployment mode {deployment} ")
+    print(f"Init apipod with backend {backend} in deployment mode {deployment} ")
     backend_instance = backend_class(deployment=deployment, *args, **kwargs)
 
     # ToDo: add default endpoints status, get_job here instead of the subclasses

@@ -4,12 +4,12 @@ from pydantic import BaseModel
 
 import time
 
-from fast_task_api import FastTaskAPI
-from fast_task_api import JobProgress
-from fast_task_api import MediaFile, ImageFile, AudioFile, VideoFile, FileModel
+from apipod import APIPod
+from apipod import JobProgress
+from apipod import MediaFile, ImageFile, AudioFile, VideoFile, FileModel
 from fastapi import UploadFile as fastapiUploadFile
 
-app = FastTaskAPI()
+app = APIPod()
 
 
 @app.post(path="/make_fries", queue_size=10)

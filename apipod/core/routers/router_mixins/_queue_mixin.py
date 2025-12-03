@@ -1,10 +1,10 @@
 import functools
 from typing import Callable
 
-from fast_task_api.CONSTS import SERVER_HEALTH
-from fast_task_api.core.routers.router_mixins.job_queue import JobQueue
-from fast_task_api.core.job.job_result import JobResultFactory, JobResult
-from fast_task_api.settings import SERVER_DOMAIN
+from apipod.CONSTS import SERVER_HEALTH
+from apipod.core.routers.router_mixins.job_queue import JobQueue
+from apipod.core.job.job_result import JobResultFactory, JobResult
+from apipod.settings import SERVER_DOMAIN
 
 
 class _QueueMixin:

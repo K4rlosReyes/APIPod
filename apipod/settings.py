@@ -1,14 +1,14 @@
 import sys
 from os import environ
-from fast_task_api.CONSTS import FTAPI_BACKENDS, FTAPI_DEPLOYMENTS
+from apipod.CONSTS import APIPOD_BACKEND, APIPOD_DEPLOYMENT
 
 # Set the execution mode
-FTAPI_DEPLOYMENT = environ.get("FTAPI_DEPLOYMENT", FTAPI_DEPLOYMENTS.LOCALHOST)
-FTAPI_BACKEND = environ.get("FTAPI_BACKEND", FTAPI_BACKENDS.FASTAPI)
+APIPOD_DEPLOYMENT = environ.get("APIPOD_DEPLOYMENT", APIPOD_DEPLOYMENT.LOCALHOST)
+APIPOD_BACKEND = environ.get("APIPOD_BACKEND", APIPOD_BACKEND.FASTAPI)
 # Configure the host and port
-FTAPI_HOST = environ.get("FTAPI_HOST", "0.0.0.0")
-FTAPI_PORT = int(environ.get("FTAPI_PORT", 8000))
-# Server domain. Is used to build the refresh and cancel job urls. 
+APIPOD_HOST = environ.get("APIPOD_HOST", "0.0.0.0")
+APIPOD_PORT = int(environ.get("APIPOD_PORT", 8000))
+# Server domain. Is used to build the refresh and cancel job urls.
 # If not set will just be /status?job_id=...
 # Set it will be server_domain/status?job_id=...
 SERVER_DOMAIN = environ.get("SERVER_DOMAIN", "")
@@ -17,6 +17,6 @@ SERVER_DOMAIN = environ.get("SERVER_DOMAIN", "")
 DEFAULT_DATE_TIME_FORMAT = environ.get("FTAPI_DATETIME_FORMAT", '%Y-%m-%dT%H:%M:%S.%f%z')
 
 # to run the runpod serverless framework locally, the following two lines must be added
-if FTAPI_BACKEND == FTAPI_BACKENDS.RUNPOD and FTAPI_DEPLOYMENT == FTAPI_DEPLOYMENTS.LOCALHOST:
+if APIPOD_BACKEND == APIPOD_BACKEND.RUNPOD and APIPOD_DEPLOYMENT == APIPOD_DEPLOYMENT.LOCALHOST:
     sys.argv.extend(['rp_serve_api', '1'])
     sys.argv.extend(['--rp_serve_api', '1'])

@@ -4,8 +4,8 @@ from datetime import datetime
 import time
 from typing import Generic, Dict, Optional, TypeVar, Tuple
 
-from fast_task_api.core.job_store import JobStore
-from fast_task_api.core.job.base_job import BaseJob, JOB_STATUS
+from apipod.core.job_store import JobStore
+from apipod.core.job.base_job import BaseJob, JOB_STATUS
 import inspect
 
 T = TypeVar('T', bound=BaseJob)

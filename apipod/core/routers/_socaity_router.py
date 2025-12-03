@@ -1,9 +1,9 @@
 from abc import abstractmethod
 from typing import Union
 import importlib.metadata
-from fast_task_api.CONSTS import SERVER_HEALTH, FTAPI_DEPLOYMENTS
-from fast_task_api.compatibility.HealthCheck import HealthCheck
-from fast_task_api.settings import FTAPI_DEPLOYMENT, FTAPI_PORT
+from apipod.CONSTS import SERVER_HEALTH, APIPOD_DEPLOYMENT
+from apipod.compatibility.HealthCheck import HealthCheck
+from apipod.settings import APIPOD_DEPLOYMENT, APIPOD_PORT
 
 
 class _SocaityRouter:
@@ -11,17 +11,17 @@ class _SocaityRouter:
     Base class for all routers.
     """
     def __init__(
-            self, title: str = "FastTaskAPI", summary: str = "Create web-APIs for long-running tasks", *args, **kwargs
+            self, title: str = "APIPod", summary: str = "Create web-APIs for long-running tasks", *args, **kwargs
     ):
         if title is None:
-            title = "FastTaskAPI"
+            title = "APIPod"
         if summary is None:
             summary = "Create web-APIs for long-running tasks"
 
         self.title = title
         self.summary = summary
         self._health_check = HealthCheck()
-        self.version = importlib.metadata.version("fast-task-api")
+        self.version = importlib.metadata.version("apipod")
 
     @property
     def status(self) -> SERVER_HEALTH:
@@ -53,7 +53,7 @@ class _SocaityRouter:
         raise NotImplementedError("Implement in subclass")
 
     @abstractmethod
-    def start(self, deployment: Union[FTAPI_DEPLOYMENTS, str] = FTAPI_DEPLOYMENT, port: int = FTAPI_PORT, *args, **kwargs):
+    def start(self, deployment: Union[APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT, port: int = APIPOD_PORT, *args, **kwargs):
         raise NotImplementedError("Implement in subclass")
 
     def endpoint(self, path: str = None, *args, **kwargs):

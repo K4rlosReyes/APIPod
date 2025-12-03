@@ -4,9 +4,9 @@ from typing import Optional, Union, List, Any
 
 from pydantic import BaseModel, AnyUrl
 
-from fast_task_api.compatibility.upload import is_param_media_toolkit_file
-from fast_task_api.core.job.base_job import JOB_STATUS, BaseJob
-from fast_task_api.settings import DEFAULT_DATE_TIME_FORMAT
+from apipod.compatibility.upload import is_param_media_toolkit_file
+from apipod.core.job.base_job import JOB_STATUS, BaseJob
+from apipod.settings import DEFAULT_DATE_TIME_FORMAT
 from media_toolkit import IMediaContainer
 from media_toolkit.utils.data_type_utils import is_file_model_dict
 

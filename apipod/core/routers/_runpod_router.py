@@ -4,16 +4,16 @@ import traceback
 from datetime import datetime, timezone
 from typing import Union, Callable
 
-from fast_task_api.CONSTS import SERVER_HEALTH
-from fast_task_api.core.job.base_job import JOB_STATUS
-from fast_task_api.core.job.job_progress import JobProgressRunpod, JobProgress
-from fast_task_api.core.job.job_result import JobResultFactory, JobResult
-from fast_task_api.core.routers._socaity_router import _SocaityRouter
-from fast_task_api.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
+from apipod.CONSTS import SERVER_HEALTH
+from apipod.core.job.base_job import JOB_STATUS
+from apipod.core.job.job_progress import JobProgressRunpod, JobProgress
+from apipod.core.job.job_result import JobResultFactory, JobResult
+from apipod.core.routers._socaity_router import _SocaityRouter
+from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
 
-from fast_task_api.CONSTS import FTAPI_DEPLOYMENTS
-from fast_task_api.core.utils import normalize_name
-from fast_task_api.settings import FTAPI_DEPLOYMENT, FTAPI_PORT, DEFAULT_DATE_TIME_FORMAT
+from apipod.CONSTS import APIPOD_DEPLOYMENT
+from apipod.core.utils import normalize_name
+from apipod.settings import APIPOD_DEPLOYMENT, APIPOD_PORT, DEFAULT_DATE_TIME_FORMAT
 
 
 class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
@@ -21,7 +21,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
     Adds routing functionality for the runpod serverless framework.
     Provides enhanced file handling and conversion capabilities.
     """
-    def __init__(self, title: str = "FastTaskAPI for ", summary: str = None, *args, **kwargs):
+    def __init__(self, title: str = "APIPod for ", summary: str = None, *args, **kwargs):
         super().__init__(title=title, summary=summary, *args, **kwargs)
         self.routes = {}  # routes are organized like {"ROUTE_NAME": "ROUTE_FUNCTION"}
 
@@ -181,7 +181,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         rp_fastapi.DESCRIPTION = self.summary + " " + rp_fastapi.DESCRIPTION
         desc = '''\
                         In input declare your path as route for the function. Other parameters follow in the input as usual.
-                        The FastTaskAPI app will use the path argument to route to the correct function declared with 
+                        The APIPod app will use the path argument to route to the correct function declared with 
                         @task_endpoint(path="your_path").
                         { "input": { "path": "your_path", "your_other_args": "your_other_args" } }
                     '''
@@ -199,7 +199,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
             def custom_openapi(self):
                 if not self.rp_app.openapi_schema:
                     self._orig_openapi_func()
-                self.rp_app.openapi_schema["info"]["fast-task-api"] = version
+                self.rp_app.openapi_schema["info"]["apipod"] = version
                 self.rp_app.openapi_schema["info"]["runpod"] = rp_fastapi.runpod_version
                 return self.rp_app.openapi_schema
 
@@ -222,10 +222,10 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
             Function with FastAPI-compatible signature for OpenAPI generation
         """
         # Import FastAPI-specific conversion logic
-        from fast_task_api.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
-        from fast_task_api.core.job.job_result import JobResult
+        from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
+        from apipod.core.job.job_result import JobResult
         import inspect
-        from fast_task_api.core.utils import replace_func_signature
+        from apipod.core.utils import replace_func_signature
         # Create a temporary instance of the FastAPI mixin to use its conversion methods
         temp_mixin = _fast_api_file_handling_mixin(max_upload_file_size_mb=5)
         # Apply the same preparation logic as FastAPI router
@@ -287,14 +287,14 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
             description=self.summary,
         )
 
-        # Add FastTaskAPI version information like the FastAPI router
-        schema["info"]["fast-task-api"] = self.version
+        # Add APIPod version information like the FastAPI router
+        schema["info"]["apipod"] = self.version
 
         return schema
 
-    def start(self, deployment: Union[FTAPI_DEPLOYMENTS, str] = FTAPI_DEPLOYMENT, port: int = FTAPI_PORT, *args, **kwargs):
+    def start(self, deployment: Union[APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT, port: int = APIPOD_PORT, *args, **kwargs):
         if type(deployment) is str:
-            deployment = FTAPI_DEPLOYMENTS(deployment)
+            deployment = APIPOD_DEPLOYMENT(deployment)
 
         if deployment == deployment.LOCALHOST:
             self.start_runpod_serverless_localhost(port=port)

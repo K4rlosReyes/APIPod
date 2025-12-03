@@ -1,11 +1,11 @@
-from fast_task_api import FastTaskAPI
-from fast_task_api import JobProgress
-from fast_task_api import ImageFile
+from apipod import APIPod
+from apipod import JobProgress
+from apipod import ImageFile
 import time
 import numpy as np
 
 # define the app including your provider (fastapi, runpod..)
-app = FastTaskAPI()
+app = APIPod()
 
 
 # add endpoints to your service

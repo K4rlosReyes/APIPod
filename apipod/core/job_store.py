@@ -2,7 +2,7 @@ import threading
 from collections import deque
 from typing import Optional, Set, Dict, TypeVar, Generic, List
 
-from fast_task_api.core.job.base_job import BaseJob
+from apipod.core.job.base_job import BaseJob
 
 T = TypeVar('T', bound=BaseJob)
 

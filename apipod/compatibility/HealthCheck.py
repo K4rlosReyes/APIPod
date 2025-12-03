@@ -1,4 +1,4 @@
-from fast_task_api.CONSTS import SERVER_HEALTH
+from apipod.CONSTS import SERVER_HEALTH
 
 import os
 from typing import Dict, Union, Tuple

@@ -4,9 +4,9 @@ from types import UnionType
 from typing import Any, Union, get_args, get_origin, Callable, List, Type
 
 from media_toolkit import media_from_any, MediaFile, MediaList, MediaDict
-from fast_task_api.compatibility.upload import is_param_media_toolkit_file
-from fast_task_api.core.job.job_result import FileModel
-from fast_task_api.core.routers._exceptions import FileUploadException
+from apipod.compatibility.upload import is_param_media_toolkit_file
+from apipod.core.job.job_result import FileModel
+from apipod.core.routers._exceptions import FileUploadException
 
 
 class _BaseFileHandlingMixin:

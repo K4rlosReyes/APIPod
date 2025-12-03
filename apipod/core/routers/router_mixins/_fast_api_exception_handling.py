@@ -1,6 +1,6 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from fast_task_api.core.routers._exceptions import JobException
+from apipod.core.routers._exceptions import JobException
 
 
 class _FastAPIExceptionHandler:
