@@ -118,7 +118,7 @@ When deploying to serverless platforms like **RunPod**, standard web frameworks 
 APIPod is designed to run anywhere by leveraging docker.
 <p align="left">
   <a href="#Create & configure container">Build & configure</a> •
-  <a href="#Deploy to socaity">Deploy</a> •
+  <a href="#Deploy to socaity">Deploy</a>
 </p>
 
 ## Create & configure container
@@ -186,7 +186,8 @@ result = task.get_result()
 | **Router Support** | ✅ | ✅ | ❌ | ❌ |
 
 ## Roadmap
-- MCP protocol support
+- MCP protocol support.
+- OpenAI-compatible default endpoints for LLMs
 - Improve async support.
 
 ---
