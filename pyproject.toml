@@ -17,7 +17,12 @@ dependencies = [
     "fastapi",
     'python-multipart>=0.0.20',
     "media-toolkit>=0.02.22",
+    "jinja2",
+    "toml",
 ]
+
+[project.scripts]
+apipod = "apipod.cli:main"
 
 [project.optional-dependencies]
 runpod = [

@@ -1,0 +1,72 @@
+{% if deployment_type == "serverless" %}
+FROM {{ base_image }}
+
+SHELL ["/bin/bash", "-c"]
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libcudnn9-cuda-12 \
+    libcudnn9-dev-cuda-12 \
+    && apt-get clean
+
+# Ensure CUDA and cuDNN libraries are in the library path
+ENV LD_LIBRARY_PATH="/usr/local/cuda/lib64:${LD_LIBRARY_PATH}"
+
+# Set the working directory
+WORKDIR /
+
+# Install Python dependencies
+RUN pip install --upgrade pip
+{% if has_requirements %}
+RUN pip install -r requirements.txt
+{% endif %}
+RUN pip install runpod>=1.7.7 && \
+    pip install . --no-cache
+
+# Configure APIPod for RunPod Serverless
+ENV APIPOD_BACKEND="runpod"
+ENV APIPOD_DEPLOYMENT="serverless"
+
+ARG port=8080
+ENV APIPOD_PORT=$port
+EXPOSE $port
+ENV APIPOD_HOST="0.0.0.0"
+
+# Set the entrypoint
+CMD ["uvicorn", "{{ entrypoint_module }}:app", "--host", "0.0.0.0", "--port", "8000"]
+{% else %}
+FROM {{ base_image }}
+
+# Set the working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    apt-transport-https \
+    ca-certificates \
+    ffmpeg \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Copy the project files
+COPY . /app
+
+# Install dependencies
+RUN pip install --upgrade pip
+{% if has_requirements %}
+RUN pip install -r requirements.txt
+{% endif %}
+RUN pip install .
+
+# Configure environment variables
+ENV HOST="0.0.0.0"
+
+# Expose the port
+ARG port=8000
+ENV PORT=$port
+EXPOSE $port
+
+# Set the entrypoint
+CMD ["uvicorn", "{{ entrypoint_module }}:app", "--host", "0.0.0.0", "--port", "8000"]
+{% endif %}
