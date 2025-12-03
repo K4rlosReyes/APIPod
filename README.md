@@ -128,10 +128,24 @@ All you need to do is run:
 ```bash
 apipod build 
 ```
-This command creates the dockerfile and the server configuration file for you.
+This command creates the dockerfile for you, and select the correct docker template and cuda/cudnn versions and comes with ffmpeg installed.
 
-It will ask you a few questions like GPU support if not configured earlier for deploying the service.
-Advanced users can also configure or write the docker and the yaml files theirsels.
+- For most users this already creates a sufficient solution. 
+- However you are always free to create or customize the Dockerfile for your needs.
+
+Requirements:
+1. docker installed on your system.
+2. Depending on your setup a cuda/cudnn installation
+
+### Troubleshooting
+
+You are always free to create or edit the Dockerfile for your needs.
+Depending on your OS, your machine or your project setup you might occur one of those issues:
+- Build scripts fails
+- You can't build the docker container.
+
+In this cases don't  
+Advanced users can also configure or write the docker file for themselves
 
 ## Deploy to socaity
 Right after build you can deploy the service via the [socaity.ai](https://www.socaity.ai) dashboard.
@@ -140,7 +154,7 @@ This is the simplest option.
 ## Deploy to runpod.
 1. You will need to build the your docker image.
 2. Push your image to your dockerhub repository.
-3.  Deploy on RunPod Serverless. 
+3. Deploy on RunPod Serverless by using the runpod dashboard. 
     *   *APIPod acts as the handler, managing job inputs/outputs compatible with RunPod's API.*
 
 Make sure that the environment variables set to the following: ```APIPOD_DEPLOYMENT="serverless"``` and  ```APIPOD_BACKEND="runpod"```

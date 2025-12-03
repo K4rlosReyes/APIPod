@@ -12,8 +12,8 @@ from fastapi import UploadFile as fastapiUploadFile
 app = APIPod()
 
 
-@app.post(path="/make_fries", queue_size=10)
-def make_fries(job_progress: JobProgress, fries_name: str, amount: int = 1):
+@app.post(path="/test_job_progress", queue_size=10)
+def test_job_progress(job_progress: JobProgress, fries_name: str, amount: int = 1):
     job_progress.set_status(0.1, f"started new fries creation {fries_name}")
     time.sleep(1)
     job_progress.set_status(0.5, f"I am working on it. Lots of work to do {amount}")
