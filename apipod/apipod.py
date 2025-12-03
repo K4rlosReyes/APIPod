@@ -1,4 +1,4 @@
-from apipod.CONSTS import APIPOD_BACKEND, APIPOD_DEPLOYMENT
+from apipod import CONSTS
 from apipod.settings import APIPOD_BACKEND, APIPOD_DEPLOYMENT
 from apipod.core.routers._socaity_router import _SocaityRouter
 from apipod.core.routers._runpod_router import SocaityRunpodRouter
@@ -7,8 +7,8 @@ from typing import Union
 
 
 def APIPod(
-        backend: Union[APIPOD_BACKEND, str, object] = APIPOD_BACKEND,
-        deployment: Union[APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT,
+        backend: Union[CONSTS.APIPOD_BACKEND, str, object] = APIPOD_BACKEND,
+        deployment: Union[CONSTS.APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT,
         *args, **kwargs
 ) -> Union[_SocaityRouter, SocaityRunpodRouter, SocaityFastAPIRouter]:
     """
