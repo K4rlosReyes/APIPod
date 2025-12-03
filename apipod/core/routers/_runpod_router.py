@@ -4,14 +4,13 @@ import traceback
 from datetime import datetime, timezone
 from typing import Union, Callable
 
-from apipod.CONSTS import SERVER_HEALTH
+from apipod import CONSTS
 from apipod.core.job.base_job import JOB_STATUS
 from apipod.core.job.job_progress import JobProgressRunpod, JobProgress
 from apipod.core.job.job_result import JobResultFactory, JobResult
 from apipod.core.routers._socaity_router import _SocaityRouter
 from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
 
-from apipod.CONSTS import APIPOD_DEPLOYMENT
 from apipod.core.utils import normalize_name
 from apipod.settings import APIPOD_DEPLOYMENT, APIPOD_PORT, DEFAULT_DATE_TIME_FORMAT
 
@@ -49,9 +48,9 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         def decorator(func):
             @functools.wraps(func)
             def wrapper(*wrapped_func_args, **wrapped_func_kwargs):
-                self.status = SERVER_HEALTH.BUSY
+                self.status = CONSTS.SERVER_HEALTH.BUSY
                 ret = func(*wrapped_func_args, **wrapped_func_kwargs)
-                self.server_status = SERVER_HEALTH.RUNNING
+                self.server_status = CONSTS.SERVER_HEALTH.RUNNING
                 return ret
 
             self.routes[path] = wrapper
@@ -292,7 +291,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
 
         return schema
 
-    def start(self, deployment: Union[APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT, port: int = APIPOD_PORT, *args, **kwargs):
+    def start(self, deployment: Union[CONSTS.APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT, port: int = APIPOD_PORT, *args, **kwargs):
         if type(deployment) is str:
             deployment = APIPOD_DEPLOYMENT(deployment)
 

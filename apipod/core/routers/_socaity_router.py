@@ -1,7 +1,7 @@
 from abc import abstractmethod
 from typing import Union
 import importlib.metadata
-from apipod.CONSTS import SERVER_HEALTH, APIPOD_DEPLOYMENT
+from apipod import CONSTS
 from apipod.compatibility.HealthCheck import HealthCheck
 from apipod.settings import APIPOD_DEPLOYMENT, APIPOD_PORT
 
@@ -24,11 +24,11 @@ class _SocaityRouter:
         self.version = importlib.metadata.version("apipod")
 
     @property
-    def status(self) -> SERVER_HEALTH:
+    def status(self) -> CONSTS.SERVER_HEALTH:
         return self._health_check.status
 
     @status.setter
-    def status(self, value: SERVER_HEALTH):
+    def status(self, value: CONSTS.SERVER_HEALTH):
         self._health_check.status = value
 
     def get_health(self) -> Union[dict, str]:
@@ -53,7 +53,7 @@ class _SocaityRouter:
         raise NotImplementedError("Implement in subclass")
 
     @abstractmethod
-    def start(self, deployment: Union[APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT, port: int = APIPOD_PORT, *args, **kwargs):
+    def start(self, deployment: Union[CONSTS.APIPOD_DEPLOYMENT, str] = APIPOD_DEPLOYMENT, port: int = APIPOD_PORT, *args, **kwargs):
         raise NotImplementedError("Implement in subclass")
 
     def endpoint(self, path: str = None, *args, **kwargs):
