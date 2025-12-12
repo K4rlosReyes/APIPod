@@ -50,8 +50,4 @@ def APIPod(
     print(f"Init apipod with backend {backend} in deployment mode {deployment} ")
     backend_instance = backend_class(deployment=deployment, *args, **kwargs)
 
-    # ToDo: add default endpoints status, get_job here instead of the subclasses
-    # app.add_route(path="/status")(app.get_status)
-    # app.add_route(path="/job")(app.get_job)
-
     return backend_instance

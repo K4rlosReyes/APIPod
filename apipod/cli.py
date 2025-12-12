@@ -1,13 +1,12 @@
 import argparse
-import os
 import sys
-import subprocess
 from typing import Optional
 
-from apipod.deploy.deploy import DeploymentManager
+from apipod.deploy.deployment_manager import DeploymentManager
 
 
 def input_yes_no(question: str, default: bool = True) -> bool:
+    """Prompt user for a yes/no response with default value."""
     valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
     prompt = " [Y/n] " if default else " [y/N] "
     while True:
@@ -20,127 +19,123 @@ def input_yes_no(question: str, default: bool = True) -> bool:
         sys.stdout.write("Please respond with 'yes' or 'no' (or 'y'/'n').\n")
 
 
-def input_choice(question: str, choices: list, default: Optional[str] = None) -> str:
-    prompt = f" [{'/'.join(choices)}]"
-    if default:
-        prompt += f" (default: {default})"
-    prompt += ": "
+def select_base_image(manager: DeploymentManager, config_data: dict) -> str:
+    """Interactive base image selection process."""
+    recommended_image = manager.recommend_image(config_data)
+    print(f"Detected configuration: Python {config_data.get('python_version')}, "
+          f"PyTorch: {config_data.get('pytorch')}, TensorFlow: {config_data.get('tensorflow')}, "
+          f"ONNX: {config_data.get('onnx')}")
+    print(f"Recommended Base Image: {recommended_image}")
+
+    if input_yes_no("Is this correct?"):
+        return recommended_image
+
+    print("Select a base image:")
+    for i, img in enumerate(manager.images, 1):
+        print(f"{i}. {img}")
+    print(f"{len(manager.images) + 1}. Enter custom image")
 
     while True:
-        sys.stdout.write(question + prompt)
-        choice = input().lower().strip()
-        if choice == "" and default:
-            return default
-        if choice in choices:
-            return choice
-        sys.stdout.write(f"Please respond with one of: {', '.join(choices)}\n")
+        try:
+            selection = input("Selection: ").strip()
+            idx = int(selection) - 1
+            if 0 <= idx < len(manager.images):
+                return manager.images[idx]
+            elif idx == len(manager.images):
+                custom_image = input("Enter custom base image: ").strip()
+                if custom_image:
+                    return custom_image
+        except ValueError:
+            pass
+        print("Invalid selection. Please try again.")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="APIPod CLI")
-    parser.add_argument("-build", action="store_true", help="Build the service container")
-    parser.add_argument("-serverless", action="store_true", help="Use serverless deployment configuration")
-    parser.add_argument("-pod", action="store_true", help="Use pod deployment configuration")
+def get_or_create_config(manager: DeploymentManager) -> Optional[dict]:
+    """Load existing config or create new one through scanning."""
+    if manager.config_exists:
+        if not input_yes_no(f"Found {manager.config_path.name} in {manager.config_path.parent}/. Overwrite?"):
+            return manager.load_config()
 
-    args = parser.parse_args()
+        print("Rescanning project...")
+        config_data = manager.scan()
+        manager.save_config(config_data)
+        return config_data
 
-    if args.build:
-        run_build(args)
-    else:
-        parser.print_help()
+    print(f"No {manager.config_path.name} found. Scanning project...")
+    config_data = manager.scan()
+    manager.save_config(config_data)
+    return config_data
+
+
+def run_scan():
+    """Scan the project and generate apipod.json configuration file."""
+    manager = DeploymentManager()
+
+    if manager.config_exists and not input_yes_no(f"{manager.config_path.name} already exists in {manager.config_path.parent}/. Overwrite?"):
+        print("Scan aborted.")
+        return
+
+    config_data = manager.scan()
+    manager.save_config(config_data)
 
 
 def run_build(args):
-    project_root = os.getcwd()
-    manager = DeploymentManager(project_root)
+    """Run the build process for creating a deployment-ready container."""
+    manager = DeploymentManager()
 
-    # 1. Check existing config
-    dockerfile_path = os.path.join(project_root, "Dockerfile")
-    deploy_dockerfile_path = os.path.join(project_root, "deploy", "Dockerfile")  # Handling potential deploy/ location
+    # Check if we should create/update the Dockerfile
+    if manager.dockerfile_exists and not input_yes_no("Deployment config DOCKERFILE exists. Overwrite your deployment config?"):
+        print("Aborting build configuration.")
+        return
 
-    if os.path.exists(dockerfile_path) or os.path.exists(deploy_dockerfile_path):
-        if not input_yes_no("Deployment config exists. Overwrite your deployment config?"):
-            print("Aborting build configuration.")
-            return
+    should_create_dockerfile = True
 
-    # 2. Deployment Type
-    deployment_type = "pod"  # default
-    if args.serverless:
-        deployment_type = "serverless"
-    elif args.pod:
-        deployment_type = "pod"
-    else:
-        choice = input_choice("How do you want to deploy the service?", ["serverless", "pod"], default="pod")
-        deployment_type = choice
+    # Load or create configuration
+    config_data = get_or_create_config(manager)
+    if not config_data:
+        print("Error: Failed to obtain configuration.")
+        return
 
-    # 3. Detect Config and Propose Image
-    print("Detecting project configuration...")
-    config = manager.detector.detect_runtime()
+    service_title = config_data.get("title", "apipod-service")
 
-    # Detect APIPod title
-    apipod_config = manager.detector.detect_apipod_config()
-    service_title = apipod_config.get("title", "apipod-service") if apipod_config else "apipod-service"
-    entrypoint_file = apipod_config.get("file", "main.py") if apipod_config else "main.py"
-
-    recommended_image = manager.recommend_image(config)
-    print(f"Detected configuration: Python {config.get('python_version')}, PyTorch: {config.get('pytorch')}, TensorFlow: {config.get('tensorflow')}")
-    print(f"Recommended Base Image: {recommended_image}")
-
-    use_image = input_yes_no("Is this correct?")
-    final_image = recommended_image
-    
-    if not use_image:
-        print("Select a base image:")
-        for i, img in enumerate(manager.images):
-            print(f"{i + 1}. {img}")
-        print(f"{len(manager.images) + 1}. Enter custom image")
-        
-        while True:
-            try:
-                selection = input("Selection: ")
-                idx = int(selection) - 1
-                if 0 <= idx < len(manager.images):
-                    final_image = manager.images[idx]
-                    break
-                elif idx == len(manager.images):
-                    final_image = input("Enter custom base image: ").strip()
-                    if final_image:
-                        break
-            except ValueError:
-                pass
-            print("Invalid selection.")
-
-    if final_image == "Enter custom base image":  # Fallback if logic falls through
+    # Select base image
+    final_image = select_base_image(manager, config_data)
+    if final_image == "Enter custom base image":
         print("Please write your own Dockerfile and config.")
         return
 
-    # 4. Check requirements
-    has_toml = os.path.exists(os.path.join(project_root, "pyproject.toml"))
-    has_req = os.path.exists(os.path.join(project_root, "requirements.txt"))
-
-    if not has_toml and not has_req:
+    # Validate dependencies
+    if not manager.check_dependencies():
         print("Warning: No pyproject.toml or requirements.txt found.")
         if not input_yes_no("Proceed anyway?", default=False):
             print("Please configure dependencies and try again.")
             return
 
-    # Generate Dockerfile
-    print(f"Generating Dockerfile for {deployment_type} deployment...")
-    dockerfile_content = manager.generate_dockerfile(deployment_type, final_image, entrypoint_file)
-    manager.write_dockerfile(dockerfile_content)
-    print("Dockerfile created.")
+    # Generate Dockerfile if requested
+    if should_create_dockerfile:
+        print("Generating Dockerfile for serverless deployment...")
+        dockerfile_content = manager.render_dockerfile(final_image, config_data)
+        manager.write_dockerfile(dockerfile_content)
 
-    # 5. Build Application
+    # Build Docker image
     if input_yes_no(f"Build the application now using docker? (Tag: {service_title})"):
-        try:
-            cmd = ["docker", "build", "-t", service_title, "."]
-            print(f"Running: {' '.join(cmd)}")
-            subprocess.check_call(cmd)
-            print("Build completed successfully.")
-        except subprocess.CalledProcessError:
-            print("Docker build failed.")
-        except FileNotFoundError:
-            print("Error: 'docker' command not found. Is Docker installed and in your PATH?")
+        manager.build_docker_image(service_title)
+
+
+def main():
+    """Main entry point for the APIPod CLI."""
+    parser = argparse.ArgumentParser(description="APIPod CLI")
+    parser.add_argument("-build", action="store_true", help="Build the service container")
+    parser.add_argument("-scan", action="store_true", help="Scan project and generate apipod.json")
+
+    args = parser.parse_args()
+
+    if args.scan:
+        run_scan()
+    elif args.build:
+        run_build(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
