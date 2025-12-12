@@ -57,9 +57,8 @@ app = APIPod()
 def hello(name: str):
     return f"Hello {name}!"
 
-# 3. Define a Job Endpoint (Asynchronous with Queue)
-# Perfect for long-running AI inference
-@app.post("/process_image", queue_size=10)
+# 2. Use built-in media processing 
+@app.endpoint("/process_image", queue_size=10)
 def process_image(image: ImageFile):
     # APIPod handles the file upload/parsing automatically
     img_array = image.to_np_array()
@@ -83,20 +82,35 @@ Visit `http://localhost:8000/docs` to see your auto-generated Swagger UI.
 
 ### 🔄 Asynchronous Jobs & Polling
 For long-running tasks (e.g., inference of a large model), you don't want to block the HTTP request. 
-Use `@app.post` to automatically wrap your function in a job queue.
 
-*   **Client:** Receives a `job_id` immediately.
-*   **Server:** Processes the task in the background.
-*   **[SDK](https://github.com/SocAIty/fastSDK):** Automatically polls for status and result.
+1. **Enable Job Queue**:
+   ```python
+   # Initialize with a local queue for development or use another job-queue like 'redis'
+   app = APIPod(queue_backend="local")
+   ```
 
-```python
-@app.post("/generate", queue_size=50)
-def generate(job_progress: JobProgress, prompt: str):
-    job_progress.set_status(0.1, "Initializing model...")
-    # ... heavy computation ...
-    job_progress.set_status(1.0, "Done!")
-    return "Generation Complete"
-```
+2. **Define Endpoint**:
+   Use `@app.endpoint` (or `@app.post`). It automatically becomes a background task when a queue is configured.
+   ```python
+   @app.post("/generate", queue_size=50)
+   def generate(job_progress: JobProgress, prompt: str):
+       job_progress.set_status(0.1, "Initializing model...")
+       # ... heavy computation ...
+       job_progress.set_status(1.0, "Done!")
+       return "Generation Complete"
+   ```
+
+   *   **Client:** Receives a `job_id` immediately.
+   *   **Server:** Processes the task in the background.
+   *   **[SDK](https://github.com/SocAIty/fastSDK):** Automatically polls for status and result.
+
+3. **Opt-out**:
+   If you want a standard synchronous endpoint even when queue is enabled:
+   ```python
+   @app.endpoint("/ping", use_queue=False)
+   def ping():
+       return "pong"
+   ```
 
 ### 📁 Smart File Handling
 Forget about parsing `multipart/form-data`, `base64`, or `bytes`. APIPod integrates with **MediaToolkit** to handle files as objects.
@@ -144,14 +158,14 @@ APIPod supports multiple job queue backends to handle different deployment scena
 
 #### Available Backends
 
-- **Local Queue** (`local`): In-memory job queue using threading (default)
+- **None** (default): Standard FastAPI behavior. No background jobs.
+  
+- **Local Queue** (`local`): In-memory job queue using threading.
   - Perfect for local development and single-instance deployments
   - No external dependencies required
-  - Uses ThreadPoolExecutor for better resource management
-
+  
 - **Redis Queue** (`redis`): Distributed job queue using Redis
   - Ideal for production deployments and horizontal scaling
-  - Supports multiple API instances sharing the same queue
   - Jobs persist across container restarts and deployments
 
 #### Configuration
@@ -160,7 +174,7 @@ APIPod supports multiple job queue backends to handle different deployment scena
 # Explicit configuration
 app = APIPod(
     backend="fastapi",
-    queue_backend="redis",  # or "local"
+    queue_backend="redis",  # "local", or None
     redis_url="redis://localhost:6379"
 )
 
@@ -171,20 +185,6 @@ os.environ["APIPOD_REDIS_URL"] = "redis://your-redis-instance:6379"
 
 app = APIPod()  # Uses environment config
 ```
-
-#### When to Use Redis
-
-Use Redis when:
-- Deploying to multiple containers/instances
-- Needing job persistence across restarts
-- Running in Azure Container Apps or similar scalable environments
-- Processing high volumes of concurrent jobs
-
-Use Local when:
-- Developing locally
-- Running single-instance deployments
-- Minimal dependencies are preferred
-
 
 ### Troubleshooting
 

@@ -22,7 +22,7 @@ def APIPod(
     Args:
         backend: fastapi, runpod
         deployment: localhost, serverless
-        queue_backend: "local" (default) or "redis"
+        queue_backend: "local" or "redis". Default is None (no queue).
         redis_url: URL for redis if queue_backend is redis. Defaults to env APIPOD_REDIS_URL
         host: The host to run the uvicorn host on.
         port: The port to run the uvicorn host on.
@@ -50,13 +50,13 @@ def _get_backend_class(backend: Union[CONSTS.APIPOD_BACKEND, str, object]) -> ty
         backend = APIPOD_BACKEND
 
     if isinstance(backend, str):
-        backend = APIPOD_BACKEND(backend)
+        backend = CONSTS.APIPOD_BACKEND(backend)
 
     backend_class = SocaityFastAPIRouter
-    if isinstance(backend, APIPOD_BACKEND):
+    if isinstance(backend, CONSTS.APIPOD_BACKEND):
         class_map = {
-            APIPOD_BACKEND.FASTAPI: SocaityFastAPIRouter,
-            APIPOD_BACKEND.RUNPOD: SocaityRunpodRouter
+            CONSTS.APIPOD_BACKEND.FASTAPI: SocaityFastAPIRouter,
+            CONSTS.APIPOD_BACKEND.RUNPOD: SocaityRunpodRouter
         }
         if backend not in class_map:
             raise Exception(f"Backend {backend.value} not found")
@@ -69,8 +69,8 @@ def _get_backend_class(backend: Union[CONSTS.APIPOD_BACKEND, str, object]) -> ty
 
 def _get_deployment_type(deployment: Union[CONSTS.APIPOD_DEPLOYMENT, str]):
     if deployment is None:
-        deployment = APIPOD_DEPLOYMENT.LOCALHOST
-    deployment = APIPOD_DEPLOYMENT(deployment) if type(deployment) is str else deployment
+        deployment = CONSTS.APIPOD_DEPLOYMENT.LOCALHOST
+    deployment = CONSTS.APIPOD_DEPLOYMENT(deployment) if type(deployment) is str else deployment
     return deployment
 
 
@@ -78,15 +78,30 @@ def _get_queue_backend(queue_backend: str, backend_class: type, redis_url: str =
     """
     Get the job queue backend for the given backend class and queue backend
     """
-    if backend_class == SocaityRunpodRouter and queue_backend == APIPOD_QUEUE_BACKEND.REDIS:
+    if backend_class == SocaityRunpodRouter and queue_backend == CONSTS.APIPOD_QUEUE_BACKEND.REDIS:
         print("Runpod router does not support redis queue. Will use runpod platform mechanism instead.")
         return None
+
     # Determine Queue Backend
     if queue_backend is None:
-        queue_backend = APIPOD_QUEUE_BACKEND
+        # Check env if passed param is None, but the param default comes from settings which reads env.
+        # If settings is None, then it is None.
+        pass
+
+    # If explicitly None, return None (No queue)
+    if not queue_backend:
+        return None
+
+    # Handle string input
+    if isinstance(queue_backend, str):
+        try:
+            queue_backend = CONSTS.APIPOD_QUEUE_BACKEND(queue_backend)
+        except ValueError:
+            # Fallback or error?
+            pass
 
     job_queue = None
-    if queue_backend == APIPOD_QUEUE_BACKEND.REDIS:
+    if queue_backend == CONSTS.APIPOD_QUEUE_BACKEND.REDIS:
         if redis_url is None:
             redis_url = os.environ.get("APIPOD_REDIS_URL")
         if not redis_url:
@@ -95,11 +110,12 @@ def _get_queue_backend(queue_backend: str, backend_class: type, redis_url: str =
 
         from apipod.core.job_queues.redis_job_queue import RedisJobQueue
         job_queue = RedisJobQueue(redis_url=redis_url)
-    else:
+    elif queue_backend == CONSTS.APIPOD_QUEUE_BACKEND.LOCAL:
         # Default to local
         from apipod.core.job_queues.job_queue import JobQueue
         job_queue = JobQueue()
-        pass
-        # Note: If job_queue is None, _QueueMixin will instantiate the default local JobQueue
+    else:
+        # Unknown or None
+        return None
 
     return job_queue

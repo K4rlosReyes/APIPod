@@ -27,19 +27,17 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         self.add_standard_routes()
 
     def add_standard_routes(self):
-        self.task_endpoint(path="openapi.json")(self.get_openapi_schema)
+        self.endpoint(path="openapi.json")(self.get_openapi_schema)
 
-    def task_endpoint(
+    def endpoint(
             self,
             path: str = None,
             *args,
             **kwargs
     ):
         """
-        Adds an additional wrapper to the API path to add functionality like:
-        - Add api key validation
-        - Create a job and add to the job queue
-        - Return job
+        Adds an endpoint route to the app for serverless execution.
+        Since RunPod is serverless, all endpoints are effectively task endpoints.
         """
         path = normalize_name(path, preserve_paths=True)
         if len(path) > 0 and path[0] == "/":
@@ -50,7 +48,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
             def wrapper(*wrapped_func_args, **wrapped_func_kwargs):
                 self.status = CONSTS.SERVER_HEALTH.BUSY
                 ret = func(*wrapped_func_args, **wrapped_func_kwargs)
-                self.server_status = CONSTS.SERVER_HEALTH.RUNNING
+                self.status = CONSTS.SERVER_HEALTH.RUNNING
                 return ret
 
             self.routes[path] = wrapper
@@ -58,14 +56,11 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
 
         return decorator
 
-    def get(self, path: str = None, queue_size: int = 1, *args, **kwargs):
-        return self.task_endpoint(path=path, queue_size=queue_size, *args, **kwargs)
+    def get(self, path: str = None, *args, **kwargs):
+        return self.endpoint(path=path, *args, **kwargs)
 
-    def post(self, path: str = None, queue_size: int = 1, *args, **kwargs):
-        return self.task_endpoint(path=path, queue_size=queue_size, *args, **kwargs)
-
-    def endpoint(self, path: str = None, *args, **kwargs):
-        return self.task_endpoint(path=path, *args, **kwargs)
+    def post(self, path: str = None, *args, **kwargs):
+        return self.endpoint(path=path, *args, **kwargs)
 
     def _add_job_progress_to_kwargs(self, func, job, kwargs):
         """
@@ -180,8 +175,8 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         rp_fastapi.DESCRIPTION = self.summary + " " + rp_fastapi.DESCRIPTION
         desc = '''\
                         In input declare your path as route for the function. Other parameters follow in the input as usual.
-                        The APIPod app will use the path argument to route to the correct function declared with 
-                        @task_endpoint(path="your_path").
+                        The APIPod app will use the path argument to route to the correct function declared with
+                        @endpoint(path="your_path").
                         { "input": { "path": "your_path", "your_other_args": "your_other_args" } }
                     '''
         rp_fastapi.RUN_DESCRIPTION = desc + "\n" + rp_fastapi.RUN_DESCRIPTION

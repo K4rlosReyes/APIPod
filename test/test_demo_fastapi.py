@@ -9,12 +9,12 @@ app = APIPod()
 
 
 # add endpoints to your service
-@app.task_endpoint("/predict")
+@app.endpoint("/predict")
 def predict(my_param1: str, my_param2: int = 0):
     return f"my_awesome_prediction {my_param1} {my_param2}"
 
 
-@app.task_endpoint("/img2img")
+@app.endpoint("/img2img")
 def img2img(upload_img: ImageFile):
     img_as_numpy = np.array(upload_img)  # this returns a np.array read with cv2
     # Do some hard work here...

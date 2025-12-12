@@ -28,7 +28,7 @@ class MoreParams(BaseModel):
     pam2: int = 42
 
 
-@app.task_endpoint("/mixed_media")
+@app.endpoint("/mixed_media")
 def test_mixed_media(
         job_progress: JobProgress,
         anyfile1: Optional[MediaFile],
@@ -49,7 +49,7 @@ def test_mixed_media(
     return anyfile3, str, content_one, content_two, anyfiles
 
 
-@app.task_endpoint("test_single_file_upload")
+@app.endpoint("test_single_file_upload")
 def test_single_file_upload(
     job_progress: JobProgress,
     file1: ImageFile

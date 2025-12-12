@@ -53,8 +53,6 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         _QueueMixin.__init__(self, job_queue=job_queue, *args, **kwargs)
         _fast_api_file_handling_mixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
 
-        # Create job queue (already handled in _QueueMixin if passed, otherwise default)
-        # self.job_queue = JobQueue() # REMOVED as it is set in _QueueMixin
         self.status = SERVER_HEALTH.INITIALIZING
 
         # Create or use provided FastAPI app
@@ -121,6 +119,9 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         # sometimes job-id is inserted with leading " or other unwanted symbols. Remove those.
         job_id = job_id.strip().strip("\"").strip("\'").strip('?').strip("#")
 
+        if self.job_queue is None:
+            return JobResultFactory.job_not_found(job_id)
+
         base_job = self.job_queue.get_job(job_id)
         if base_job is None:
             return JobResultFactory.job_not_found(job_id)
@@ -135,15 +136,84 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         return ret_job
 
     @functools.wraps(APIRouter.api_route)
-    def endpoint(self, path: str, methods: list[str] = None, max_upload_file_size_mb: int = None, *args, **kwargs):
+    def endpoint(self, path: str, methods: list[str] = None, max_upload_file_size_mb: int = None, queue_size: int = 500, use_queue: bool = None, *args, **kwargs):
         """
-        Endpoint with file upload support; without job queue functionality.
-        """
-        # normalize path
-        path = normalize_name(path, preserve_paths=True)
-        if len(path) > 0 and path[0] != "/":
-            path = "/" + path
+        Unified endpoint decorator.
 
+        If job_queue is configured (and use_queue is not False), it creates a task endpoint.
+        Otherwise, it creates a standard FastAPI endpoint.
+
+        Args:
+            path: API path
+            methods: List of HTTP methods (e.g. ["POST"])
+            max_upload_file_size_mb: Max upload size for files
+            queue_size: Max queue size (only if using queue)
+            use_queue: Force enable/disable queue. If None, auto-detect based on job_queue presence.
+        """
+        normalized_path = self._normalize_endpoint_path(path)
+        should_use_queue = self._determine_queue_usage(use_queue, normalized_path)
+
+        if should_use_queue:
+            return self._create_task_endpoint_decorator(
+                path=normalized_path,
+                methods=methods,
+                max_upload_file_size_mb=max_upload_file_size_mb,
+                queue_size=queue_size,
+                args=args,
+                kwargs=kwargs
+            )
+        else:
+            return self._create_standard_endpoint_decorator(
+                path=normalized_path,
+                methods=methods,
+                max_upload_file_size_mb=max_upload_file_size_mb,
+                args=args,
+                kwargs=kwargs
+            )
+
+    def _normalize_endpoint_path(self, path: str) -> str:
+        """Normalize the endpoint path to ensure it starts with '/'."""
+        normalized = normalize_name(path, preserve_paths=True)
+        return normalized if normalized.startswith("/") else f"/{normalized}"
+
+    def _determine_queue_usage(self, use_queue: bool = None, path: str = None) -> bool:
+        """Determine whether to use the job queue based on configuration and parameters."""
+        if use_queue is not None:
+            if use_queue and self.job_queue is None:
+                raise ValueError(f"Endpoint {path} requested use_queue=True but no job_queue is configured.")
+            return use_queue
+
+        return self.job_queue is not None
+
+    def _create_task_endpoint_decorator(self, path: str, methods: list[str], max_upload_file_size_mb: int, queue_size: int, args, kwargs):
+        """Create a decorator for task endpoints (background job execution)."""
+        # FastAPI route decorator (returning JobResult)
+        fastapi_route_decorator = self.api_route(
+            path=path,
+            methods=["POST"] if methods is None else methods,
+            response_model=JobResult,
+            *args,
+            **kwargs
+        )
+
+        # Queue decorator
+        queue_decorator = super().job_queue_func(
+            path=path,
+            queue_size=queue_size,
+            *args,
+            **kwargs
+        )
+
+        def decorator(func: Callable) -> Callable:
+            # Add job queue functionality and prepare for FastAPI file handling
+            queue_decorated = queue_decorator(func)
+            upload_enabled = self._prepare_func_for_media_file_upload_with_fastapi(queue_decorated, max_upload_file_size_mb)
+            return fastapi_route_decorator(upload_enabled)
+
+        return decorator
+
+    def _create_standard_endpoint_decorator(self, path: str, methods: list[str], max_upload_file_size_mb: int, args, kwargs):
+        """Create a decorator for standard endpoints (direct execution)."""
         # FastAPI route decorator
         fastapi_route_decorator = self.api_route(
             path=path,
@@ -167,93 +237,17 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
         return decorator
 
-    def task_endpoint(
-            self,
-            path: str,
-            queue_size: int = 500,
-            methods: list[str] = None,
-            max_upload_file_size_mb: int = None,
-            *args,
-            **kwargs
-    ):
-        """
-        Create a task endpoint that runs as a background job.
-
-        Args:
-            path: API endpoint path
-            queue_size: Maximum job queue size
-            methods: HTTP methods (default: ["POST"])
-            max_upload_file_size_mb: Maximum file size in MB
-            args: Additional arguments
-            kwargs: Additional keyword arguments
-
-        Returns:
-            Decorator function for endpoint
-        """
-        path = normalize_name(path, preserve_paths=True)
-        if len(path) > 0 and path[0] != "/":
-            path = "/" + path
-
-        # FastAPI route decorator
-        fastapi_route_decorator = self.api_route(
-            path=path,
-            methods=["POST"] if methods is None else methods,
-            response_model=JobResult,
-            *args,
-            **kwargs
-        )
-
-        # Queue decorator
-        queue_decorator = super().job_queue_func(
-            path=path,
-            queue_size=queue_size,
-            *args,
-            **kwargs
-        )
-
-        def decorator(func: Callable) -> Callable:
-            # Add job queue functionality. Also function will get return type JobResult
-            queue_decorated = queue_decorator(func)
-
-            # PREPARE FUNCTION FOR FASTAPI
-            # converts MediaFile parameters to UploadFile, reads the files and adds them to the function arguments
-            # also removes the job progress parameter from the function signature
-            upload_enabled = self._prepare_func_for_media_file_upload_with_fastapi(queue_decorated, max_upload_file_size_mb)
-
-            # Add route to FastAPI
-            return fastapi_route_decorator(upload_enabled)
-
-        return decorator
-
     def get(self, path: str = None, queue_size: int = 100, *args, **kwargs):
         """
-        Create a GET task endpoint.
-
-        Args:
-            path: API endpoint path
-            queue_size: Maximum job queue size
-            args: Additional arguments
-            kwargs: Additional keyword arguments
-
-        Returns:
-            Task endpoint decorator
+        Create a GET endpoint.
         """
-        return self.task_endpoint(path=path, queue_size=queue_size, methods=["GET"], *args, **kwargs)
+        return self.endpoint(path=path, queue_size=queue_size, methods=["GET"], *args, **kwargs)
 
     def post(self, path: str = None, queue_size: int = 100, *args, **kwargs):
         """
-        Create a POST task endpoint.
-
-        Args:
-            path: API endpoint path
-            queue_size: Maximum job queue size
-            args: Additional arguments
-            kwargs: Additional keyword arguments
-
-        Returns:
-            Task endpoint decorator
+        Create a POST endpoint.
         """
-        return self.task_endpoint(path=path, queue_size=queue_size, methods=["POST"], *args, **kwargs)
+        return self.endpoint(path=path, queue_size=queue_size, methods=["POST"], *args, **kwargs)
 
     def start(self, port: int = APIPOD_PORT, host: str = APIPOD_HOST, *args, **kwargs):
         """
