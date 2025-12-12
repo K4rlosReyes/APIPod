@@ -2,16 +2,17 @@ import threading
 import traceback
 from datetime import datetime
 import time
-from typing import Generic, Dict, Optional, TypeVar, Tuple
+from typing import Dict, Optional, TypeVar, Tuple
 
-from apipod.core.job_store import JobStore
+from apipod.core.job_queues.job_store import JobStore
 from apipod.core.job.base_job import BaseJob, JOB_STATUS
+from apipod.core.job_queues.job_queue_interface import JobQueueInterface
 import inspect
 
 T = TypeVar('T', bound=BaseJob)
 
 
-class JobQueue(Generic[T]):
+class JobQueue(JobQueueInterface[T]):
     """
     The JobQueue provides a simple interface to queue and process jobs in the background.
     Features:

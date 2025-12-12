@@ -2,7 +2,7 @@ import functools
 from typing import Callable
 
 from apipod.CONSTS import SERVER_HEALTH
-from apipod.core.routers.router_mixins.job_queue import JobQueue
+from apipod.core.job_queues.job_queue import JobQueue
 from apipod.core.job.job_result import JobResultFactory, JobResult
 from apipod.settings import SERVER_DOMAIN
 
@@ -13,8 +13,8 @@ class _QueueMixin:
     Then instead of returning the result of the function, it returns a job object.
     Jobs are executed in threads. The user can check the status of the job and get the result.
     """
-    def __init__(self, *args, **kwargs):
-        self.job_queue = JobQueue()
+    def __init__(self, job_queue=None, *args, **kwargs):
+        self.job_queue = job_queue if job_queue else JobQueue()
         self.status = SERVER_HEALTH.INITIALIZING
 
     def add_job(self, func: Callable, job_params: dict) -> JobResult:

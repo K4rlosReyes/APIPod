@@ -10,7 +10,6 @@ from apipod.core.routers._socaity_router import _SocaityRouter
 from apipod.core.routers.router_mixins._queue_mixin import _QueueMixin
 from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
 from apipod.core.utils import normalize_name
-from apipod.core.routers.router_mixins.job_queue import JobQueue
 from apipod.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
 
 
@@ -29,6 +28,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             app: Union[FastAPI, None] = None,
             prefix: str = "",  # "/api",
             max_upload_file_size_mb: float = None,
+            job_queue=None,
             *args,
             **kwargs):
         """
@@ -40,6 +40,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             app: Existing FastAPI app to use (optional)
             prefix: The API route prefix
             max_upload_file_size_mb: Maximum file size in MB for uploads
+            job_queue: Optional custom JobQueue implementation
             args: Additional arguments
             kwargs: Additional keyword arguments
         """
@@ -49,11 +50,11 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
         APIRouter.__init__(self, **api_router_kwargs)
         _SocaityRouter.__init__(self, title=title, summary=summary, *args, **kwargs)
-        _QueueMixin.__init__(self, *args, **kwargs)
+        _QueueMixin.__init__(self, job_queue=job_queue, *args, **kwargs)
         _fast_api_file_handling_mixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
 
-        # Create job queue
-        self.job_queue = JobQueue()
+        # Create job queue (already handled in _QueueMixin if passed, otherwise default)
+        # self.job_queue = JobQueue() # REMOVED as it is set in _QueueMixin
         self.status = SERVER_HEALTH.INITIALIZING
 
         # Create or use provided FastAPI app

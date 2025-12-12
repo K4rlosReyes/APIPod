@@ -1,6 +1,6 @@
 import sys
 from os import environ
-from apipod.CONSTS import APIPOD_BACKEND, APIPOD_DEPLOYMENT
+from apipod.CONSTS import APIPOD_BACKEND, APIPOD_DEPLOYMENT, APIPOD_QUEUE_BACKEND
 
 # Set the execution mode
 APIPOD_DEPLOYMENT = environ.get("APIPOD_DEPLOYMENT", APIPOD_DEPLOYMENT.LOCALHOST)
@@ -20,3 +20,8 @@ DEFAULT_DATE_TIME_FORMAT = environ.get("FTAPI_DATETIME_FORMAT", '%Y-%m-%dT%H:%M:
 if APIPOD_BACKEND == APIPOD_BACKEND.RUNPOD and APIPOD_DEPLOYMENT == APIPOD_DEPLOYMENT.LOCALHOST:
     sys.argv.extend(['rp_serve_api', '1'])
     sys.argv.extend(['--rp_serve_api', '1'])
+
+
+# JOB QUEUE SETTINGS
+APIPOD_QUEUE_BACKEND = environ.get("APIPOD_QUEUE_BACKEND", APIPOD_QUEUE_BACKEND.LOCAL)
+APIPOD_REDIS_URL = environ.get("APIPOD_REDIS_URL", None)

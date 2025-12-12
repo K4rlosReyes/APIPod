@@ -18,3 +18,8 @@ class SERVER_HEALTH(Enum):
     RUNNING = "running"
     BUSY = "busy"
     ERROR = "error"
+
+
+class APIPOD_QUEUE_BACKEND(Enum):
+    LOCAL = "local"
+    REDIS = "redis"
