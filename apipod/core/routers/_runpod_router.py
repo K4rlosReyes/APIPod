@@ -2,7 +2,13 @@ import functools
 import inspect
 import traceback
 from datetime import datetime, timezone
-from typing import Union, Callable
+from typing import Union, Callable, get_type_hints
+import uuid
+import time
+
+from httpx import request
+
+from pydantic import BaseModel
 
 from apipod import CONSTS
 from apipod.core.job.base_job import JOB_STATUS
@@ -10,6 +16,7 @@ from apipod.core.job.job_progress import JobProgressRunpod, JobProgress
 from apipod.core.job.job_result import JobResultFactory, JobResult
 from apipod.core.routers._socaity_router import _SocaityRouter
 from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
+from apipod.core.routers import schemas
 
 from apipod.core.utils import normalize_name
 from apipod.settings import APIPOD_DEPLOYMENT, APIPOD_PORT, DEFAULT_DATE_TIME_FORMAT
@@ -29,27 +36,167 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
     def add_standard_routes(self):
         self.endpoint(path="openapi.json")(self.get_openapi_schema)
 
-    def endpoint(
-            self,
-            path: str = None,
-            *args,
-            **kwargs
-    ):
+
+    def endpoint(self, path: str = None, *args, **kwargs):
         """
         Adds an endpoint route to the app for serverless execution.
-        Since RunPod is serverless, all endpoints are effectively task endpoints.
         """
         path = normalize_name(path, preserve_paths=True)
         if len(path) > 0 and path[0] == "/":
             path = path[1:]
 
+        # Map Request Models to (Response Model, Type String) for "Smart Responses"
+        model_map = {
+            schemas.ChatCompletionRequest: (schemas.ChatCompletionResponse, "chat"),
+            schemas.CompletionRequest: (schemas.CompletionResponse, "completion"),
+            schemas.EmbeddingRequest: (schemas.EmbeddingResponse, "embedding"),
+        }
+
         def decorator(func):
+            # 1. Inspect function to find Pydantic models safely
+            try:
+                type_hints = get_type_hints(func)
+            except Exception:
+                type_hints = {}
+
+            sig = inspect.signature(func)
+            request_model = None
+            response_model = None
+            endpoint_type_str = None
+            target_param_name = None 
+
+            for name, param in sig.parameters.items():
+                ann = type_hints.get(name, param.annotation)
+                
+                if inspect.isclass(ann) and issubclass(ann, BaseModel):
+                    request_model = ann
+                    target_param_name = name
+                    
+                    if ann in model_map:
+                        response_model, endpoint_type_str = model_map[ann]
+                    break
+
             @functools.wraps(func)
-            def wrapper(*wrapped_func_args, **wrapped_func_kwargs):
+            def wrapper(*wrapped_args, **wrapped_kwargs):
                 self.status = CONSTS.SERVER_HEALTH.BUSY
-                ret = func(*wrapped_func_args, **wrapped_func_kwargs)
-                self.status = CONSTS.SERVER_HEALTH.RUNNING
-                return ret
+                
+                # --- A. Input Processing (Map Dict -> Pydantic Object) ---
+                openai_req = None
+                final_kwargs = wrapped_kwargs.copy()
+
+                if request_model and target_param_name:
+                    try:
+                        # CASE 1: Explicit Argument Provided (e.g. input={"payload": {...}})
+                        if target_param_name in wrapped_kwargs:
+                            val = wrapped_kwargs[target_param_name]
+                            if isinstance(val, dict):
+                                openai_req = request_model.model_validate(val)
+                                final_kwargs[target_param_name] = openai_req
+                        
+                        # CASE 2: Flat/Implicit Arguments (e.g. input={"model": "...", "messages": ...})
+                        else:
+                            openai_req = request_model.model_validate(wrapped_kwargs)
+                            final_kwargs[target_param_name] = openai_req
+                            
+                            # Cleanup raw fields only for implicit case
+                            cleaned_kwargs = {}
+                            for k, v in final_kwargs.items():
+                                if k in sig.parameters:
+                                    cleaned_kwargs[k] = v
+                            final_kwargs = cleaned_kwargs
+                        
+                    except Exception as e:
+                        # If validation fails, we proceed with raw kwargs.
+                        pass
+
+                # --- B. Execution (Sync or Async) ---
+                try:
+                    if inspect.iscoroutinefunction(func):
+                        # Handle Async Function in Sync Context
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                        
+                        if loop.is_running():
+                             future = asyncio.run_coroutine_threadsafe(func(*wrapped_args, **final_kwargs), loop)
+                             result = future.result()
+                        else:
+                             result = loop.run_until_complete(func(*wrapped_args, **final_kwargs))
+                    else:
+                        # Standard Sync Call
+                        result = func(*wrapped_args, **final_kwargs)
+                finally:
+                    self.status = CONSTS.SERVER_HEALTH.RUNNING
+
+                # --- C. Response Wrapping (Smart Logic) ---
+                if response_model and endpoint_type_str:
+                    timestamp = int(time.time())
+                    model_name = getattr(openai_req, "model", "unknown") if openai_req else "unknown"
+
+                    if isinstance(result, response_model):
+                        return result
+
+                    # Convert Dictionary to Object
+                    if isinstance(result, dict):
+                        if "choices" in result:
+                            return response_model(
+                                id=result.get("id", f"chatcmpl-{uuid.uuid4().hex[:8]}"),
+                                object=result.get("object", "chat.completion"),
+                                created=result.get("created", timestamp),
+                                model=result.get("model", model_name),
+                                choices=result["choices"],
+                                usage=result.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+                            )
+                        elif "data" in result and endpoint_type_str == "embedding":
+                            return response_model(
+                                object=result.get("object", "list"),
+                                data=result["data"],
+                                model=result.get("model", model_name),
+                                usage=result.get("usage", {"prompt_tokens": 0, "total_tokens": 0})
+                            )
+                        try:
+                            return response_model.model_validate(result)
+                        except: pass
+
+                    # Fallback wrapping (Raw Content)
+                    if endpoint_type_str == "chat":
+                        content = result
+                        if isinstance(result, dict):
+                            content = result.get("content", result.get("message", str(result)))
+                        
+                        return response_model(
+                            id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
+                            object="chat.completion",
+                            created=timestamp,
+                            model=model_name,
+                            choices=[{
+                                "index": 0,
+                                "message": {"role": "assistant", "content": str(content)},
+                                "finish_reason": "stop"
+                            }],
+                            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+                        )
+                    
+                    elif endpoint_type_str == "embedding":
+                        embedding = result
+                        if isinstance(result, dict):
+                            embedding = result.get("embedding")
+                        
+                        if isinstance(embedding, list):
+                            return response_model(
+                                object="list",
+                                data=[{
+                                    "object": "embedding",
+                                    "embedding": embedding,
+                                    "index": 0
+                                }],
+                                model=model_name,
+                                usage={"prompt_tokens": 0, "total_tokens": 0}
+                            )
+
+                return result
 
             self.routes[path] = wrapper
             return wrapper
@@ -126,10 +273,28 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         result = JobResult(id=job['id'], execution_started_at=start_time.strftime("%Y-%m-%dT%H:%M:%S.%f%z"))
 
         try:
-            # Execute the function
-            res = route_function(**kwargs)
+            # Execute the function (Sync or Async Handling)
+            # Since route_function might have been wrapped by _handle_file_uploads (which can be async)
+            # OR wrapped by endpoint (which handles its own async logic inside 'wrapper')
+            
+            if inspect.iscoroutinefunction(route_function):
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                if loop.is_running():
+                    # If we are somehow inside a loop, we must use threadsafe execution or await if this function was async
+                    # But _router is Sync.
+                     future = asyncio.run_coroutine_threadsafe(route_function(**kwargs), loop)
+                     res = future.result()
+                else:
+                     res = loop.run_until_complete(route_function(**kwargs))
+            else:
+                res = route_function(**kwargs)
 
-            # Convert result to JSON if it's a MediaFile / MediaList
+            # Convert result to JSON if it's a MediaFile / MediaList / Pydantic Model
             res = JobResultFactory._serialize_result(res)
 
             result.result = res
