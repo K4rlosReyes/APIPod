@@ -233,6 +233,7 @@ class _BaseFileHandlingMixin:
     def _handle_file_uploads(self, func: Callable) -> Callable:
         """
         Wrap a function to handle file uploads and conversions.
+        Handles both synchronous and asynchronous functions correctly.
 
         Args:
             func: Original function to wrap
@@ -245,26 +246,54 @@ class _BaseFileHandlingMixin:
      
         param_names = list(sig.parameters.keys())
 
-        @functools.wraps(func)
-        def file_upload_wrapper(*args, **kwargs):
-            # Map positional arguments to parameter names
-            named_args = {param_names[i]: arg for i, arg in enumerate(args) if i < len(param_names)}
-            named_args.update(kwargs)
+        # Check if the original function is async
+        if inspect.iscoroutinefunction(func):
+            @functools.wraps(func)
+            async def file_upload_wrapper(*args, **kwargs):
+                # Map positional arguments to parameter names
+                named_args = {param_names[i]: arg for i, arg in enumerate(args) if i < len(param_names)}
+                named_args.update(kwargs)
 
-            # Convert media-related parameters
-            files_to_process = {
-                param_name: param_value
-                for param_name, param_value in named_args.items()
-                if param_name in media_params or MediaFile._is_starlette_upload_file(param_value)
-            }
+                # Convert media-related parameters
+                files_to_process = {
+                    param_name: param_value
+                    for param_name, param_value in named_args.items()
+                    if param_name in media_params or MediaFile._is_starlette_upload_file(param_value)
+                }
 
-            try:
-                processed_files = self._read_upload_files(files_to_process, media_params, *args, **kwargs)
-            except Exception as e:
-                raise FileUploadException(message=str(e))
+                try:
+                    processed_files = self._read_upload_files(files_to_process, media_params, *args, **kwargs)
+                except Exception as e:
+                    raise FileUploadException(message=str(e))
 
-            # Update arguments with converted files
-            named_args.update(processed_files)
-            return func(**named_args)
+                # Update arguments with converted files
+                named_args.update(processed_files)
+                
+                # AWAIT the async function
+                return await func(**named_args)
+        else:
+            @functools.wraps(func)
+            def file_upload_wrapper(*args, **kwargs):
+                # Map positional arguments to parameter names
+                named_args = {param_names[i]: arg for i, arg in enumerate(args) if i < len(param_names)}
+                named_args.update(kwargs)
+
+                # Convert media-related parameters
+                files_to_process = {
+                    param_name: param_value
+                    for param_name, param_value in named_args.items()
+                    if param_name in media_params or MediaFile._is_starlette_upload_file(param_value)
+                }
+
+                try:
+                    processed_files = self._read_upload_files(files_to_process, media_params, *args, **kwargs)
+                except Exception as e:
+                    raise FileUploadException(message=str(e))
+
+                # Update arguments with converted files
+                named_args.update(processed_files)
+                
+                # Call the sync function directly
+                return func(**named_args)
 
         return file_upload_wrapper
