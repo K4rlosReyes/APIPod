@@ -162,3 +162,5 @@ cython_debug/
 
 # Ignore Visual Studio Code files
 .vscode/
+.runpod_jobs*
+apipod-deploy/
