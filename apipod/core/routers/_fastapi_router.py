@@ -11,9 +11,10 @@ from apipod.core.routers.router_mixins._queue_mixin import _QueueMixin
 from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
 from apipod.core.utils import normalize_name
 from apipod.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
+from apipod.core.routers.router_mixins._fast_api_llm_mixin import _FastAPILLMMixin
 
 
-class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler):
+class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler, _FastAPILLMMixin):
     """
     FastAPI router extension that adds support for task endpoints.
 
@@ -52,6 +53,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         _SocaityRouter.__init__(self, title=title, summary=summary, *args, **kwargs)
         _QueueMixin.__init__(self, job_queue=job_queue, *args, **kwargs)
         _fast_api_file_handling_mixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
+        _FastAPILLMMixin.__init__(self)
 
         self.status = SERVER_HEALTH.INITIALIZING
 
@@ -135,10 +137,11 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
         return ret_job
 
-    @functools.wraps(APIRouter.api_route)
-    def endpoint(self, path: str, methods: list[str] = None, max_upload_file_size_mb: int = None, queue_size: int = 500, use_queue: bool = None, *args, **kwargs):
+    def endpoint(self, path: str, methods: list[str] | None = None, max_upload_file_size_mb: int = None, queue_size: int = 500, use_queue: bool = None, *args, **kwargs):
         """
         Unified endpoint decorator.
+
+        If LLM configuration is detected on the function, it creates an LLM endpoint.
 
         If job_queue is configured (and use_queue is not False), it creates a task endpoint.
         Otherwise, it creates a standard FastAPI endpoint.
@@ -153,23 +156,124 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         normalized_path = self._normalize_endpoint_path(path)
         should_use_queue = self._determine_queue_usage(use_queue, normalized_path)
 
-        if should_use_queue:
-            return self._create_task_endpoint_decorator(
+        def decorator(func: Callable) -> Callable:
+            # 1. Auto-Detection
+            req_model, res_model, endpoint_type = self._get_llm_config(func)
+            
+            # 2. Fallback: Standard Endpoint
+            if req_model is None:
+                if should_use_queue:
+                    return self._create_task_endpoint_decorator(
+                        path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
+                        queue_size=queue_size, args=args, kwargs=kwargs
+                    )(func)
+                else:
+                    return self._create_standard_endpoint_decorator(
+                        path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
+                        args=args, kwargs=kwargs
+                    )(func)
+            
+            assert res_model is not None
+
+            # 3. LLM Endpoint Logic
+            @functools.wraps(func)
+            async def _unified_worker(*w_args, **w_kwargs):
+                # Extract the request payload
+                payload = next((v for v in w_kwargs.values() if isinstance(v, (dict, req_model))), 
+                          next((a for a in w_args if isinstance(a, (dict, req_model))), None))
+
+                if payload is None:
+                    raise ValueError(f"Request does not match expected model {req_model}")
+
+                # Remove payload-related keys from kwargs to avoid duplication
+                clean_kwargs = {k: v for k, v in w_kwargs.items() if not isinstance(v, req_model)}
+
+                openai_req = self._prepare_llm_payload(
+                    req_model=req_model, 
+                    payload=payload
+                )
+
+                clean_kwargs["payload"] = openai_req
+
+                return await self.handle_llm_request(
+                    func=func,
+                    openai_req=openai_req,
+                    should_use_queue=should_use_queue,
+                    res_model=res_model,
+                    endpoint_type=endpoint_type,
+                    **clean_kwargs
+                )
+
+            # 4. Route Registration
+            active_methods = ["POST"] if methods is None else methods
+            final_handler = self._prepare_func_for_media_file_upload_with_fastapi(_unified_worker, max_upload_file_size_mb)
+
+            self.api_route(
                 path=normalized_path,
-                methods=methods,
-                max_upload_file_size_mb=max_upload_file_size_mb,
-                queue_size=queue_size,
-                args=args,
-                kwargs=kwargs
-            )
+                methods=active_methods,
+                response_model=JobResult if should_use_queue else res_model,
+                *args,
+                **kwargs
+            )(final_handler)
+
+            return final_handler
+
+        return decorator
+    
+    async def _execute_func(self, func, **kwargs):
+        """
+        Execute a function, handling both sync and async functions.
+        
+        Args:
+            func: Function to execute
+            **kwargs: Arguments to pass to function
+            
+        Returns:
+            Result of function execution
+        """
+        if inspect.iscoroutinefunction(func):
+            return await func(**kwargs)
         else:
-            return self._create_standard_endpoint_decorator(
-                path=normalized_path,
-                methods=methods,
-                max_upload_file_size_mb=max_upload_file_size_mb,
-                args=args,
-                kwargs=kwargs
-            )
+            # Sync function - run in thread pool to avoid blocking
+            import asyncio
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, functools.partial(func, **kwargs))
+
+    async def _stream_generator(self, result):
+        """
+        Convert a sync or async generator into an async generator for StreamingResponse.
+        
+        Args:
+            result: Generator (sync or async) that yields streaming chunks
+            
+        Yields:
+            Streaming chunks as strings or bytes
+        """
+        import asyncio
+        
+        if inspect.isasyncgen(result):
+            # Async generator - yield directly
+            async for chunk in result:
+                if isinstance(chunk, (str, bytes)):
+                    yield chunk
+                else:
+                    yield str(chunk)
+        elif inspect.isgenerator(result):
+            # Sync generator - run in executor
+            loop = asyncio.get_event_loop()
+            try:
+                while True:
+                    chunk = await loop.run_in_executor(None, next, result, StopIteration)
+                    if chunk is StopIteration:
+                        break
+                    if isinstance(chunk, (str, bytes)):
+                        yield chunk
+                    else:
+                        yield str(chunk)
+            except StopIteration:
+                pass
+        else:
+            raise TypeError(f"Expected generator, got {type(result)}")
 
     def _normalize_endpoint_path(self, path: str) -> str:
         """Normalize the endpoint path to ensure it starts with '/'."""
@@ -185,7 +289,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
         return self.job_queue is not None
 
-    def _create_task_endpoint_decorator(self, path: str, methods: list[str], max_upload_file_size_mb: int, queue_size: int, args, kwargs):
+    def _create_task_endpoint_decorator(self, path: str, methods: list[str] | None, max_upload_file_size_mb: int, queue_size: int, args, kwargs):
         """Create a decorator for task endpoints (background job execution)."""
         # FastAPI route decorator (returning JobResult)
         fastapi_route_decorator = self.api_route(
@@ -212,7 +316,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
 
         return decorator
 
-    def _create_standard_endpoint_decorator(self, path: str, methods: list[str], max_upload_file_size_mb: int, args, kwargs):
+    def _create_standard_endpoint_decorator(self, path: str, methods: list[str] | None, max_upload_file_size_mb: int, args, kwargs):
         """Create a decorator for standard endpoints (direct execution)."""
         # FastAPI route decorator
         fastapi_route_decorator = self.api_route(

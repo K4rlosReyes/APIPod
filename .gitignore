@@ -162,3 +162,11 @@ cython_debug/
 
 # Ignore Visual Studio Code files
 .vscode/
+*code-workspace
+.runpod_jobs*
+apipod-deploy/
+
+# comment mise for now
+mise.toml
+# comment makefile for now
+Makefile
