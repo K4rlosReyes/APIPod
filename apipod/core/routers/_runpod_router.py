@@ -1,14 +1,11 @@
+import asyncio
 import functools
 import inspect
 import traceback
 from datetime import datetime, timezone
-from typing import Union, Callable, get_type_hints
+from typing import Union, Callable
 import uuid
 import time
-
-from httpx import request
-
-from pydantic import BaseModel
 
 from apipod import CONSTS
 from apipod.core.job.base_job import JOB_STATUS
@@ -16,19 +13,21 @@ from apipod.core.job.job_progress import JobProgressRunpod, JobProgress
 from apipod.core.job.job_result import JobResultFactory, JobResult
 from apipod.core.routers._socaity_router import _SocaityRouter
 from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
-from apipod.core.routers import schemas
+from apipod.core.routers.router_mixins._runpod_llm_mixin import _RunPodLLMMixin
 
 from apipod.core.utils import normalize_name
 from apipod.settings import APIPOD_DEPLOYMENT, APIPOD_PORT, DEFAULT_DATE_TIME_FORMAT
 
 
-class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
+class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin, _RunPodLLMMixin):
     """
     Adds routing functionality for the runpod serverless framework.
     Provides enhanced file handling and conversion capabilities.
     """
     def __init__(self, title: str = "APIPod for ", summary: str = None, *args, **kwargs):
         super().__init__(title=title, summary=summary, *args, **kwargs)
+        _RunPodLLMMixin.__init__(self)
+
         self.routes = {}  # routes are organized like {"ROUTE_NAME": "ROUTE_FUNCTION"}
 
         self.add_standard_routes()
@@ -36,172 +35,101 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
     def add_standard_routes(self):
         self.endpoint(path="openapi.json")(self.get_openapi_schema)
 
+    def endpoint(self, path: str = None, use_queue: bool = None, *args, **kwargs):
+        path = normalize_name(path, preserve_paths=True).strip("/")
 
-    def endpoint(self, path: str = None, *args, **kwargs):
-        """
-        Adds an endpoint route to the app for serverless execution.
-        """
-        path = normalize_name(path, preserve_paths=True)
-        if len(path) > 0 and path[0] == "/":
-            path = path[1:]
-
-        # Map Request Models to (Response Model, Type String) for "Smart Responses"
-        model_map = {
-            schemas.ChatCompletionRequest: (schemas.ChatCompletionResponse, "chat"),
-            schemas.CompletionRequest: (schemas.CompletionResponse, "completion"),
-            schemas.EmbeddingRequest: (schemas.EmbeddingResponse, "embedding"),
-        }
-
-        def decorator(func):
-            # 1. Inspect function to find Pydantic models safely
-            try:
-                type_hints = get_type_hints(func)
-            except Exception:
-                type_hints = {}
-
-            sig = inspect.signature(func)
-            request_model = None
-            response_model = None
-            endpoint_type_str = None
-            target_param_name = None 
-
-            for name, param in sig.parameters.items():
-                ann = type_hints.get(name, param.annotation)
-                
-                if inspect.isclass(ann) and issubclass(ann, BaseModel):
-                    request_model = ann
-                    target_param_name = name
-                    
-                    if ann in model_map:
-                        response_model, endpoint_type_str = model_map[ann]
-                    break
+        def decorator(func: Callable) -> Callable:
+            # 1. Auto-Detection
+            req_model, res_model, endpoint_type = self._get_llm_config(func)
 
             @functools.wraps(func)
-            def wrapper(*wrapped_args, **wrapped_kwargs):
+            def wrapper(*w_args, **w_kwargs):
                 self.status = CONSTS.SERVER_HEALTH.BUSY
                 
-                # --- A. Input Processing (Map Dict -> Pydantic Object) ---
-                openai_req = None
-                final_kwargs = wrapped_kwargs.copy()
-
-                if request_model and target_param_name:
-                    try:
-                        # CASE 1: Explicit Argument Provided (e.g. input={"payload": {...}})
-                        if target_param_name in wrapped_kwargs:
-                            val = wrapped_kwargs[target_param_name]
-                            if isinstance(val, dict):
-                                openai_req = request_model.model_validate(val)
-                                final_kwargs[target_param_name] = openai_req
-                        
-                        # CASE 2: Flat/Implicit Arguments (e.g. input={"model": "...", "messages": ...})
-                        else:
-                            openai_req = request_model.model_validate(wrapped_kwargs)
-                            final_kwargs[target_param_name] = openai_req
-                            
-                            # Cleanup raw fields only for implicit case
-                            cleaned_kwargs = {}
-                            for k, v in final_kwargs.items():
-                                if k in sig.parameters:
-                                    cleaned_kwargs[k] = v
-                            final_kwargs = cleaned_kwargs
-                        
-                    except Exception as e:
-                        # If validation fails, we proceed with raw kwargs.
-                        pass
-
-                # --- B. Execution (Sync or Async) ---
                 try:
-                    if inspect.iscoroutinefunction(func):
-                        # Handle Async Function in Sync Context
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
-                        
-                        if loop.is_running():
-                             future = asyncio.run_coroutine_threadsafe(func(*wrapped_args, **final_kwargs), loop)
-                             result = future.result()
-                        else:
-                             result = loop.run_until_complete(func(*wrapped_args, **final_kwargs))
-                    else:
-                        # Standard Sync Call
-                        result = func(*wrapped_args, **final_kwargs)
+                    if req_model:
+                        payload = w_kwargs.get("payload", None)
+
+                        openai_req = self._prepare_llm_payload(
+                            req_model=req_model,
+                            payload=payload
+                        )
+
+                        w_kwargs["payload"] = openai_req
+
+                        return self.handle_llm_request(
+                            func=func,
+                            openai_req=openai_req,
+                            req_model=req_model,
+                            res_model=res_model,
+                            endpoint_type=endpoint_type,
+                            w_args=w_args,
+                            w_kwargs=w_kwargs
+                        )
+
+                    # Default execution for standard endpoints
+                    return self._execute_sync_or_async(func, w_args, w_kwargs)
                 finally:
                     self.status = CONSTS.SERVER_HEALTH.RUNNING
 
-                # --- C. Response Wrapping (Smart Logic) ---
-                if response_model and endpoint_type_str:
-                    timestamp = int(time.time())
-                    model_name = getattr(openai_req, "model", "unknown") if openai_req else "unknown"
-
-                    if isinstance(result, response_model):
-                        return result
-
-                    # Convert Dictionary to Object
-                    if isinstance(result, dict):
-                        if "choices" in result:
-                            return response_model(
-                                id=result.get("id", f"chatcmpl-{uuid.uuid4().hex[:8]}"),
-                                object=result.get("object", "chat.completion"),
-                                created=result.get("created", timestamp),
-                                model=result.get("model", model_name),
-                                choices=result["choices"],
-                                usage=result.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
-                            )
-                        elif "data" in result and endpoint_type_str == "embedding":
-                            return response_model(
-                                object=result.get("object", "list"),
-                                data=result["data"],
-                                model=result.get("model", model_name),
-                                usage=result.get("usage", {"prompt_tokens": 0, "total_tokens": 0})
-                            )
-                        try:
-                            return response_model.model_validate(result)
-                        except: pass
-
-                    # Fallback wrapping (Raw Content)
-                    if endpoint_type_str == "chat":
-                        content = result
-                        if isinstance(result, dict):
-                            content = result.get("content", result.get("message", str(result)))
-                        
-                        return response_model(
-                            id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
-                            object="chat.completion",
-                            created=timestamp,
-                            model=model_name,
-                            choices=[{
-                                "index": 0,
-                                "message": {"role": "assistant", "content": str(content)},
-                                "finish_reason": "stop"
-                            }],
-                            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                        )
-                    
-                    elif endpoint_type_str == "embedding":
-                        embedding = result
-                        if isinstance(result, dict):
-                            embedding = result.get("embedding")
-                        
-                        if isinstance(embedding, list):
-                            return response_model(
-                                object="list",
-                                data=[{
-                                    "object": "embedding",
-                                    "embedding": embedding,
-                                    "index": 0
-                                }],
-                                model=model_name,
-                                usage={"prompt_tokens": 0, "total_tokens": 0}
-                            )
-
-                return result
-
             self.routes[path] = wrapper
             return wrapper
-
         return decorator
+
+    def _yield_native_stream(self, func, args, kwargs):
+        """Bridge for RunPod native generator streaming."""
+        from starlette.responses import StreamingResponse
+        
+        # Execute the function
+        result = self._execute_sync_or_async(func, args, kwargs)
+        
+        # If it's a StreamingResponse (shouldn't happen in RunPod, but handle it)
+        if isinstance(result, StreamingResponse):
+            body_iterator = result.body_iterator
+            
+            if inspect.isasyncgen(body_iterator):
+                while True:
+                    try:
+                        chunk = self._run_in_loop(body_iterator.__anext__())
+                        yield chunk if isinstance(chunk, (str, bytes)) else str(chunk)
+                    except StopAsyncIteration:
+                        break
+            else:
+                for chunk in body_iterator:
+                    yield chunk if isinstance(chunk, (str, bytes)) else str(chunk)
+            return
+        
+        # Handle async generators
+        if inspect.isasyncgen(result):
+            while True:
+                try:
+                    chunk = self._run_in_loop(result.__anext__())
+                    yield chunk if isinstance(chunk, (str, bytes)) else str(chunk)
+                except StopAsyncIteration:
+                    break
+            return
+        
+        # Handle sync generators
+        if inspect.isgenerator(result):
+            for chunk in result:
+                yield chunk if isinstance(chunk, (str, bytes)) else str(chunk)
+            return
+        
+        # Not a generator - shouldn't happen for streaming
+        raise TypeError(f"Expected generator for streaming, got {type(result)}")
+
+    def _execute_sync_or_async(self, func, args, kwargs):
+        if inspect.iscoroutinefunction(func):
+            return self._run_in_loop(func(*args, **kwargs))
+        return func(*args, **kwargs)
+
+    def _run_in_loop(self, coro):
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
 
     def get(self, path: str = None, *args, **kwargs):
         return self.endpoint(path=path, *args, **kwargs)
@@ -243,7 +171,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
             kwargs: Function arguments
 
         Returns:
-            JSON-encoded job result
+            JSON-encoded job result or generator for streaming
         """
         if not isinstance(path, str):
             raise Exception("Path must be a string")
@@ -269,30 +197,17 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
 
         # Prepare result tracking
         start_time = datetime.now(timezone.utc)
-        # result = JobResultFactory.from_base_job(job)
-        result = JobResult(id=job['id'], execution_started_at=start_time.strftime("%Y-%m-%dT%H:%M:%S.%f%z"))
+        result = JobResult(id=job['id'], execution_started_at=start_time.strftime(DEFAULT_DATE_TIME_FORMAT))
 
         try:
             # Execute the function (Sync or Async Handling)
-            # Since route_function might have been wrapped by _handle_file_uploads (which can be async)
-            # OR wrapped by endpoint (which handles its own async logic inside 'wrapper')
-            
-            if inspect.iscoroutinefunction(route_function):
-                try:
-                    loop = asyncio.get_event_loop()
-                except RuntimeError:
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                
-                if loop.is_running():
-                    # If we are somehow inside a loop, we must use threadsafe execution or await if this function was async
-                    # But _router is Sync.
-                     future = asyncio.run_coroutine_threadsafe(route_function(**kwargs), loop)
-                     res = future.result()
-                else:
-                     res = loop.run_until_complete(route_function(**kwargs))
-            else:
-                res = route_function(**kwargs)
+            res = self._execute_route_function(route_function, kwargs)
+
+            # Check if result is a generator (streaming response)
+            if inspect.isgenerator(res) or inspect.isasyncgen(res):
+                # For streaming, return the generator directly
+                # RunPod will handle the streaming
+                return res
 
             # Convert result to JSON if it's a MediaFile / MediaList / Pydantic Model
             res = JobResultFactory._serialize_result(res)
@@ -310,13 +225,50 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         result = result.model_dump_json()
         return result
 
+    def _execute_route_function(self, route_function, kwargs):
+        """
+        Execute a route function, handling both sync and async functions.
+        
+        Args:
+            route_function: The function to execute
+            kwargs: Keyword arguments to pass to the function
+            
+        Returns:
+            The result of the function execution
+        """
+        if not inspect.iscoroutinefunction(route_function):
+            # Synchronous function - simple execution
+            return route_function(**kwargs)
+        
+        # Async function - need event loop handling
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                # Already in async context - shouldn't happen in RunPod handler
+                # But if it does, we need to handle it differently
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(
+                        asyncio.run, 
+                        route_function(**kwargs)
+                    )
+                    return future.result()
+            else:
+                # Loop exists but not running - use it
+                return loop.run_until_complete(route_function(**kwargs))
+        except RuntimeError:
+            # No event loop exists - create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(route_function(**kwargs))
+            finally:
+                loop.close()
+                asyncio.set_event_loop(None)
+
     def handler(self, job):
         """
         The handler function that is called by the runpod serverless framework.
-        We wrap it to provide internal routing in the serverless framework.
-        Args:
-            job: the job that is passed by the runpod serverless framework. Must include "path" in the input.
-        Returns: the result of the path function.
         """
         inputs = job["input"]
         if "path" not in inputs:
@@ -325,7 +277,14 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
         route = inputs["path"]
         del inputs["path"]
 
-        return self._router(route, job, **inputs)
+        result = self._router(route, job, **inputs)
+        
+        # If it's a generator, return it directly for RunPod to stream
+        if inspect.isgenerator(result):
+            return result
+        
+        # Otherwise return the JSON result
+        return result
 
     def start_runpod_serverless_localhost(self, port):
         # add the -rp_serve_api to the command line arguments to allow debugging
@@ -364,7 +323,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
 
         rp_fastapi.WorkerAPI = WorkerAPIWithModifiedInfo
 
-        runpod.serverless.start({"handler": self.handler})
+        runpod.serverless.start({"handler": self.handler, "return_aggregate_stream": True})
 
     def _create_openapi_compatible_function(self, func: Callable) -> Callable:
         """
@@ -397,6 +356,62 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
 
         final_func = replace_func_signature(with_file_upload_signature, job_result_sig)
         return final_func
+    
+    def _create_openapi_safe_function(self, func: Callable) -> Callable:
+        """
+        Create a minimal function signature for OpenAPI when full conversion fails.
+        
+        Args:
+            func: Original function
+            
+        Returns:
+            A simple function with basic signature for OpenAPI
+        """
+        import inspect
+        from typing import Any, Dict
+        
+        # Extract basic parameter information
+        sig = inspect.signature(func)
+        params = []
+        
+        for param_name, param in sig.parameters.items():
+            # Skip special parameters
+            if param_name in ('job_progress', 'self', 'cls'):
+                continue
+                
+            # Create a simple parameter with Any type if annotation is complex
+            annotation = param.annotation if param.annotation != inspect.Parameter.empty else Any
+            
+            # Simplify complex types to Dict or Any
+            if hasattr(annotation, '__origin__'):  # Generic types
+                annotation = Dict if 'dict' in str(annotation).lower() else Any
+                
+            params.append(
+                inspect.Parameter(
+                    param_name,
+                    kind=param.kind,
+                    default=param.default,
+                    annotation=annotation
+                )
+            )
+        
+        # Create new signature
+        new_sig = inspect.Signature(
+            parameters=params,
+            return_annotation=Dict[str, Any]
+        )
+        
+        # Create wrapper function with new signature
+        def safe_wrapper(**kwargs) -> Dict[str, Any]:
+            """Auto-generated safe wrapper for OpenAPI documentation."""
+            return {"message": "Execute via RunPod handler"}
+        
+        # Apply signature
+        safe_wrapper.__signature__ = new_sig
+        safe_wrapper.__name__ = func.__name__
+        safe_wrapper.__doc__ = func.__doc__ or "API endpoint"
+        
+        return safe_wrapper
 
     def get_openapi_schema(self):
         from fastapi.openapi.utils import get_openapi
@@ -459,6 +474,6 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin):
             self.start_runpod_serverless_localhost(port=port)
         elif deployment == deployment.SERVERLESS:
             import runpod.serverless
-            runpod.serverless.start({"handler": self.handler})
+            runpod.serverless.start({"handler": self.handler, "return_aggregate_stream": True})
         else:
             raise Exception(f"Not implemented for environment {deployment}")

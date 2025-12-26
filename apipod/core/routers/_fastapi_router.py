@@ -1,10 +1,8 @@
 import functools
 import inspect
 from typing import Union, Callable
-from fastapi import APIRouter, FastAPI, Response, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, FastAPI, Response
 
-from apipod.core.routers.schemas import ChatCompletionRequest, ChatCompletionResponse, CompletionRequest, CompletionResponse, EmbeddingRequest, EmbeddingResponse
 from apipod.settings import APIPOD_PORT, APIPOD_HOST, SERVER_DOMAIN
 from apipod.CONSTS import SERVER_HEALTH
 from apipod.core.job.job_result import JobResultFactory, JobResult
@@ -13,9 +11,10 @@ from apipod.core.routers.router_mixins._queue_mixin import _QueueMixin
 from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
 from apipod.core.utils import normalize_name
 from apipod.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
+from apipod.core.routers.router_mixins._fast_api_llm_mixin import _FastAPILLMMixin
 
 
-class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler):
+class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler, _FastAPILLMMixin):
     """
     FastAPI router extension that adds support for task endpoints.
 
@@ -54,6 +53,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         _SocaityRouter.__init__(self, title=title, summary=summary, *args, **kwargs)
         _QueueMixin.__init__(self, job_queue=job_queue, *args, **kwargs)
         _fast_api_file_handling_mixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
+        _FastAPILLMMixin.__init__(self)
 
         self.status = SERVER_HEALTH.INITIALIZING
 
@@ -138,35 +138,18 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         return ret_job
 
     def endpoint(self, path: str, methods: list[str] | None = None, max_upload_file_size_mb: int = None, queue_size: int = 500, use_queue: bool = None, *args, **kwargs):
-        import time
-        import uuid
-        from fastapi.concurrency import run_in_threadpool
-        
+        """
+        TODO: Streaming on normal endpoints
+        """
         normalized_path = self._normalize_endpoint_path(path)
         should_use_queue = self._determine_queue_usage(use_queue, normalized_path)
 
-        model_map = {
-            ChatCompletionRequest: (ChatCompletionResponse, "chat"),
-            CompletionRequest: (CompletionResponse, "completion"),
-            EmbeddingRequest: (EmbeddingResponse, "embedding"),
-        }
-
         def decorator(func: Callable) -> Callable:
             # 1. Auto-Detection
-            sig = inspect.signature(func)
-            request_model = None
-            response_model = None
-            endpoint_type_str = None
-            
-            for param in sig.parameters.values():
-                ann = param.annotation
-                if inspect.isclass(ann) and ann in model_map:
-                    request_model = ann
-                    response_model, endpoint_type_str = model_map[ann]
-                    break
+            req_model, res_model, endpoint_type = self._get_llm_config(func)
             
             # 2. Fallback: Standard Endpoint
-            if request_model is None:
+            if req_model is None:
                 if should_use_queue:
                     return self._create_task_endpoint_decorator(
                         path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
@@ -178,154 +161,107 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                         args=args, kwargs=kwargs
                     )(func)
             
-            assert response_model is not None
-            assert endpoint_type_str is not None
+            assert res_model is not None
 
             # 3. LLM Endpoint Logic
             @functools.wraps(func)
             async def _unified_worker(*w_args, **w_kwargs):
-                # A. Extract Request Model
-                openai_req = None
-                for arg in w_args:
-                    if isinstance(arg, request_model): openai_req = arg; break
-                if not openai_req:
-                    for val in w_kwargs.values():
-                        if isinstance(val, request_model): openai_req = val; break
-                
-                request_obj = next((arg for arg in w_args if isinstance(arg, Request)), 
-                                 next((val for val in w_kwargs.values() if isinstance(val, Request)), None))
-                
-                if openai_req is None and request_obj:
-                    try:
-                        # Pydantic usage: parse raw JSON body
-                        body = await request_obj.json()
-                        openai_req = request_model.model_validate(body)
-                    except Exception: pass
-                
-                if request_obj and openai_req:
-                    request_obj.state.openai_request = openai_req
+                # Extract the request payload
+                payload = next((v for v in w_kwargs.values() if isinstance(v, (dict, req_model))), 
+                          next((a for a in w_args if isinstance(a, (dict, req_model))), None))
 
-                # B. Execute User Function
-                if inspect.iscoroutinefunction(func):
-                    result = await func(*w_args, **w_kwargs)
-                else:
-                    result = await run_in_threadpool(func, *w_args, **w_kwargs)
-                
-                # C. Pydantic Response Construction
-                model_name = getattr(openai_req, "model", "unknown") if openai_req else "unknown"
-                timestamp = int(time.time())
+                if payload is None:
+                    raise ValueError(f"Request does not match expected model {req_model}")
 
-                # 1. Pass through if it is already the correct Pydantic Object
-                if isinstance(result, response_model):
-                    return result
+                # Remove payload-related keys from kwargs to avoid duplication
+                clean_kwargs = {k: v for k, v in w_kwargs.items() if not isinstance(v, req_model)}
 
-                # 2. Handle Dictionary Responses (Partial or Full)
-                if isinstance(result, dict):
-                    # If it's a Chat/Completion dict with "choices"
-                    if "choices" in result:
-                        return response_model(
-                            id=result.get("id", f"chatcmpl-{uuid.uuid4().hex[:8]}"),
-                            object=result.get("object", "chat.completion"),
-                            created=result.get("created", timestamp),
-                            model=result.get("model", model_name),
-                            choices=result["choices"],
-                            usage=result.get("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
-                        )
-                    # If it's an Embedding dict with "data"
-                    elif "data" in result and endpoint_type_str == "embedding":
-                         return response_model(
-                            object=result.get("object", "list"),
-                            data=result["data"],
-                            model=result.get("model", model_name),
-                            usage=result.get("usage", {"prompt_tokens": 0, "total_tokens": 0})
-                        )
+                openai_req = self._prepare_llm_payload(
+                    req_model=req_model, 
+                    payload=payload
+                )
 
-                # 3. Fallback: Treat result as raw content string (Auto-Wrap)
-                if endpoint_type_str == "chat":
-                    # Handle diverse return types
-                    content = result
-                    if isinstance(result, dict):
-                        content = result.get("content", result.get("message", str(result)))
-                    
-                    return response_model(
-                        id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
-                        object="chat.completion",
-                        created=timestamp,
-                        model=model_name,
-                        choices=[{
-                            "index": 0,
-                            "message": {"role": "assistant", "content": str(content)},
-                            "finish_reason": "stop"
-                        }],
-                        usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                    )
+                clean_kwargs["payload"] = openai_req
 
-                elif endpoint_type_str == "completion":
-                    text = result
-                    if isinstance(result, dict):
-                        text = result.get("text", str(result))
-                        
-                    return response_model(
-                        id=f"cmpl-{uuid.uuid4().hex[:8]}",
-                        object="text_completion",
-                        created=timestamp,
-                        model=model_name,
-                        choices=[{
-                            "text": str(text),
-                            "index": 0,
-                            "logprobs": None,
-                            "finish_reason": "stop"
-                        }],
-                        usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-                    )
-
-                elif endpoint_type_str == "embedding":
-                    embedding = result
-                    if isinstance(result, dict):
-                        embedding = result.get("embedding")
-                    
-                    if not isinstance(embedding, list):
-                         raise ValueError("Result must be a list or dict with 'embedding'")
-
-                    return response_model(
-                        object="list",
-                        data=[{
-                            "object": "embedding",
-                            "embedding": embedding,
-                            "index": 0
-                        }],
-                        model=model_name,
-                        usage={"prompt_tokens": 0, "total_tokens": 0}
-                    )
-                
-                return result
-
+                return await self.handle_llm_request(
+                    func=func,
+                    openai_req=openai_req,
+                    should_use_queue=should_use_queue,
+                    res_model=res_model,
+                    endpoint_type=endpoint_type,
+                    **clean_kwargs
+                )
 
             # 4. Route Registration
             active_methods = ["POST"] if methods is None else methods
+            final_handler = self._prepare_func_for_media_file_upload_with_fastapi(_unified_worker, max_upload_file_size_mb)
 
-            if should_use_queue:
-                queued_func = self.job_queue_func(
-                    path=normalized_path, queue_size=queue_size, *args, **kwargs
-                )(_unified_worker)
-                
-                final_handler = self._prepare_func_for_media_file_upload_with_fastapi(
-                    queued_func, max_upload_file_size_mb
-                )
-                self.api_route(
-                    path=normalized_path, methods=active_methods, response_model=JobResult, *args, **kwargs
-                )(final_handler)
-                return final_handler
-            else:
-                final_handler = self._prepare_func_for_media_file_upload_with_fastapi(
-                    _unified_worker, max_upload_file_size_mb
-                )
-                self.api_route(
-                    path=normalized_path, methods=active_methods, response_model=response_model, *args, **kwargs
-                )(final_handler)
-                return final_handler
+            self.api_route(
+                path=normalized_path,
+                methods=active_methods,
+                response_model=JobResult if should_use_queue else res_model,
+                *args,
+                **kwargs
+            )(final_handler)
+
+            return final_handler
 
         return decorator
+    
+    async def _execute_func(self, func, **kwargs):
+        """
+        Execute a function, handling both sync and async functions.
+        
+        Args:
+            func: Function to execute
+            **kwargs: Arguments to pass to function
+            
+        Returns:
+            Result of function execution
+        """
+        if inspect.iscoroutinefunction(func):
+            return await func(**kwargs)
+        else:
+            # Sync function - run in thread pool to avoid blocking
+            import asyncio
+            loop = asyncio.get_event_loop()
+            return await loop.run_in_executor(None, functools.partial(func, **kwargs))
+
+    async def _stream_generator(self, result):
+        """
+        Convert a sync or async generator into an async generator for StreamingResponse.
+        
+        Args:
+            result: Generator (sync or async) that yields streaming chunks
+            
+        Yields:
+            Streaming chunks as strings or bytes
+        """
+        import asyncio
+        
+        if inspect.isasyncgen(result):
+            # Async generator - yield directly
+            async for chunk in result:
+                if isinstance(chunk, (str, bytes)):
+                    yield chunk
+                else:
+                    yield str(chunk)
+        elif inspect.isgenerator(result):
+            # Sync generator - run in executor
+            loop = asyncio.get_event_loop()
+            try:
+                while True:
+                    chunk = await loop.run_in_executor(None, next, result, StopIteration)
+                    if chunk is StopIteration:
+                        break
+                    if isinstance(chunk, (str, bytes)):
+                        yield chunk
+                    else:
+                        yield str(chunk)
+            except StopIteration:
+                pass
+        else:
+            raise TypeError(f"Expected generator, got {type(result)}")
 
     def _normalize_endpoint_path(self, path: str) -> str:
         """Normalize the endpoint path to ensure it starts with '/'."""
