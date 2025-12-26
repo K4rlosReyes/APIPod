@@ -1,5 +1,5 @@
 """
-Local API Server using APIPod - Optimized
+Local API Server using APIPod - Optimized for AMD ROCm
 """
 
 from contextlib import asynccontextmanager
@@ -8,24 +8,34 @@ from typing import List, Union
 from apipod import APIPod
 from apipod.core.routers import schemas
 from fastapi import FastAPI, Body
+import uuid
+import time
+from threading import Thread
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
 # ============================================================================
-# Model Wrapper (Optimized)
+# Model Wrapper (Optimized for ROCm)
 # ============================================================================
 
 class LocalSmallModel:
     def __init__(self, model_name: str = "Qwen/Qwen2.5-0.5B-Instruct"):
         print(f"Loading {model_name}...")
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        # Detect AMD GPU with ROCm
+        self.device = self._detect_device()
         print(f"Using device: {self.device}")
+        
+        if self.device == "cuda":
+            print(f"ROCm GPU detected: {torch.cuda.get_device_name(0)}")
+            print(f"ROCm version: {torch.version.hip if hasattr(torch.version, 'hip') else 'N/A'}")
         
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
         # Qwen requires setting pad_token for batching if it's missing
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
-            
+        
+        # Use float16 for GPU (ROCm supports it well)
         dtype = torch.float16 if self.device == "cuda" else torch.float32
         
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -38,8 +48,18 @@ class LocalSmallModel:
         
         if self.device == "cpu":
             self.model = self.model.to(self.device)
-            
+        
         print("Model loaded successfully!")
+    
+    def _detect_device(self) -> str:
+        """Detect if ROCm/CUDA GPU is available"""
+        if torch.cuda.is_available():
+            # This works for both NVIDIA CUDA and AMD ROCm
+            # PyTorch with ROCm reports as 'cuda'
+            return "cuda"
+        else:
+            print("Warning: No GPU detected. Falling back to CPU.")
+            return "cpu"
 
     def generate(self, messages: list, temperature: float = 0.7, max_tokens: int = 512) -> str:
         # Standardize messages to list of dicts
@@ -69,6 +89,41 @@ class LocalSmallModel:
         input_len = inputs['input_ids'].shape[1]
         response = self.tokenizer.decode(outputs[0][input_len:], skip_special_tokens=True)
         return response.strip()
+    
+    def stream_generate(self, messages: list, temperature: float = 0.7, max_tokens: int = 512):
+        """Streaming version of the generation logic."""
+        chat = [
+            msg.model_dump() if hasattr(msg, 'model_dump') else 
+            msg.__dict__ if hasattr(msg, '__dict__') else msg 
+            for msg in messages
+        ]
+
+        text_prompt = self.tokenizer.apply_chat_template(
+            chat, tokenize=False, add_generation_prompt=True
+        )
+        
+        inputs = self.tokenizer(text_prompt, return_tensors="pt").to(self.device)
+        
+        # skip_prompt=True is critical; otherwise, you'll stream back the user's question
+        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
+        
+        generation_kwargs = dict(
+            **inputs,
+            streamer=streamer,
+            max_new_tokens=max_tokens or 512,
+            temperature=temperature,
+            do_sample=temperature > 0,
+            pad_token_id=self.tokenizer.eos_token_id
+        )
+
+        # Run generation in a separate thread to prevent blocking the generator
+        thread = Thread(target=self.model.generate, kwargs=generation_kwargs)
+        thread.start()
+
+        for new_text in streamer:
+            # Hugging Face streamer often yields empty strings at the start/end
+            if new_text:
+                yield new_text
     
     def get_embeddings(self, texts: Union[str, List[str]]) -> List[List[float]]:
         """Batch processing for embeddings"""
@@ -120,8 +175,8 @@ async def lifespan(app: FastAPI):
 # ============================================================================
 # Logic Handlers (Pure Python)
 # ============================================================================
-
 def chat_logic(payload: schemas.ChatCompletionRequest):
+    """Non-streaming chat completion"""
     state.model = LocalSmallModel("Qwen/Qwen2.5-0.5B-Instruct")
     if state.model is None:
         raise RuntimeError("Model not initialized")
@@ -132,47 +187,58 @@ def chat_logic(payload: schemas.ChatCompletionRequest):
         max_tokens=payload.max_tokens or 512
     )
     
-    # Calculate usage (approximation)
-    input_str = "".join([getattr(m, 'content', str(m)) for m in payload.messages])
+    # Calculate usage
+    input_str = "".join([m.content for m in payload.messages])
     prompt_tokens = len(state.model.tokenizer.encode(input_str))
     completion_tokens = len(state.model.tokenizer.encode(response_text))
     
-    return {
-        "choices": [{
-            "index": 0,
-            "message": {"role": "assistant", "content": response_text},
-            "finish_reason": "stop"
-        }],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens
-        }
-    }
+    return schemas.ChatCompletionResponse(
+        id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
+        object="chat.completion",
+        created=int(time.time()),
+        model=payload.model or "Qwen/Qwen2.5-0.5B-Instruct",
+        choices=[
+            schemas.ChatCompletionChoice(
+                index=0,
+                message=schemas.ChatCompletionMessage(  # ✅ Correct type
+                    role="assistant",
+                    content=response_text
+                ),
+                finish_reason="stop"
+            )
+        ],
+        usage=schemas.Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens
+        )
+    )
 
 def embeddings_logic(payload: schemas.EmbeddingRequest):
     if state.model is None:
         raise RuntimeError("Model not initialized")
 
     texts = [payload.input] if isinstance(payload.input, str) else payload.input
-    
-    # Use the new batched method
     embeddings_list = state.model.get_embeddings(texts)
-    
-    # Calculate tokens for usage stats
     total_tokens = sum(len(state.model.tokenizer.encode(t)) for t in texts)
     
-    return {
-        "data": [
-            {"object": "embedding", "embedding": emb, "index": i}
+    return schemas.EmbeddingResponse(
+        object="list",
+        model=payload.model or "Qwen/Qwen2.5-0.5B-Instruct",
+        data=[
+            schemas.EmbeddingData(
+                object="embedding",
+                embedding=emb,
+                index=i
+            )
             for i, emb in enumerate(embeddings_list)
         ],
-        "usage": {
-            "prompt_tokens": total_tokens,
-            "total_tokens": total_tokens
-        }
-    }
-
+        usage=schemas.Usage(
+            prompt_tokens=total_tokens,
+            completion_tokens=0,  # Embeddings don't have completion tokens
+            total_tokens=total_tokens
+        )
+    )
 # ============================================================================
 # API Setup
 # ============================================================================
@@ -186,7 +252,58 @@ app = APIPod(
 
 @app.endpoint(path="/chat", use_queue=False)
 def chat_endpoint(payload: schemas.ChatCompletionRequest = Body(...)):
-    return chat_logic(payload)
+    """Chat completion endpoint with streaming support."""
+    if payload.stream:
+        def sse_generator():
+            state.model = LocalSmallModel("Qwen/Qwen2.5-0.5B-Instruct")
+            if state.model is None:
+                raise RuntimeError("Model not initialized")
+            
+            chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+            created_time = int(time.time())
+            model_name = payload.model or "Qwen/Qwen2.5-0.5B-Instruct"
+            
+            for token in state.model.stream_generate(
+                messages=payload.messages,
+                temperature=payload.temperature,
+                max_tokens=payload.max_tokens
+            ):
+                # Use ChatCompletionChunk schema
+                chunk = schemas.ChatCompletionChunk(
+                    id=chunk_id,
+                    object="chat.completion.chunk",
+                    created=created_time,
+                    model=model_name,
+                    choices=[
+                        schemas.ChatStreamChoice(
+                            index=0,
+                            delta=schemas.ChatDelta(content=token),
+                            finish_reason=None
+                        )
+                    ]
+                )
+                yield f"data: {chunk.model_dump_json()}\n\n"
+            
+            # Final chunk with finish_reason
+            final_chunk = schemas.ChatCompletionChunk(
+                id=chunk_id,
+                object="chat.completion.chunk",
+                created=created_time,
+                model=model_name,
+                choices=[
+                    schemas.ChatStreamChoice(
+                        index=0,
+                        delta=schemas.ChatDelta(content=None),
+                        finish_reason="stop"
+                    )
+                ]
+            )
+            yield f"data: {final_chunk.model_dump_json()}\n\n"
+            yield "data: [DONE]\n\n"
+        
+        return sse_generator()
+    else:
+        return chat_logic(payload)
 
 @app.endpoint(path="/embeddings", use_queue=True)
 def embeddings_endpoint(payload: schemas.EmbeddingRequest = Body(...)):
