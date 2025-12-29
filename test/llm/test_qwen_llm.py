@@ -4,12 +4,12 @@ Local API Server using APIPod - Optimized for AMD ROCm
 
 from contextlib import asynccontextmanager
 from typing import List, Union
+from datetime import datetime
 
 from apipod import APIPod
 from apipod.core.routers import schemas
 from fastapi import FastAPI, Body
 import uuid
-import time
 from threading import Thread
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
@@ -195,7 +195,7 @@ def chat_logic(payload: schemas.ChatCompletionRequest):
     return schemas.ChatCompletionResponse(
         id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
         object="chat.completion",
-        created=int(time.time()),
+        created=int(datetime.now().timestamp()),
         model=payload.model or "Qwen/Qwen2.5-0.5B-Instruct",
         choices=[
             schemas.ChatCompletionChoice(
@@ -260,7 +260,7 @@ def chat_endpoint(payload: schemas.ChatCompletionRequest = Body(...)):
                 raise RuntimeError("Model not initialized")
             
             chunk_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-            created_time = int(time.time())
+            created_time = int(datetime.now().timestamp())
             model_name = payload.model or "Qwen/Qwen2.5-0.5B-Instruct"
             
             for token in state.model.stream_generate(
