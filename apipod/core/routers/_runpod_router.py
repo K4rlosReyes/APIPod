@@ -4,8 +4,6 @@ import inspect
 import traceback
 from datetime import datetime, timezone
 from typing import Union, Callable
-import uuid
-import time
 
 from apipod import CONSTS
 from apipod.core.job.base_job import JOB_STATUS
