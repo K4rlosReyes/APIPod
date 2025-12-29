@@ -1,6 +1,6 @@
 from typing import Callable, Type, Any
 import uuid
-import time
+from datetime import datetime, timezone
 import inspect
 from apipod.core.routers import schemas
 
@@ -44,7 +44,7 @@ class _BaseLLMMixin:
             return result
         
         model_name = getattr(openai_req, "model", "unknown-model")
-        ts, uid = int(time.time()), uuid.uuid4().hex[:8]
+        ts, uid = int(datetime.now(timezone.utc)), uuid.uuid4().hex[:8]
 
         if endpoint_type == "chat":
             return response_model(

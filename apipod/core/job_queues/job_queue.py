@@ -1,6 +1,6 @@
 import threading
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from typing import Dict, Optional, TypeVar, Tuple
 
@@ -71,7 +71,7 @@ class JobQueue(JobQueueInterface[T]):
             return job
 
         job.status = JOB_STATUS.QUEUED
-        job.queued_at = datetime.utcnow()
+        job.queued_at = datetime.now(timezone.utc)
         self.job_store.add_to_queue(job)
 
         # Check if worker thread is alive, if not create and start a new one
@@ -92,7 +92,7 @@ class JobQueue(JobQueueInterface[T]):
 
     def _process_job(self, job: T) -> None:
         try:
-            job.execution_started_at = datetime.utcnow()
+            job.execution_started_at = datetime.now(timezone.utc)
             job.status = JOB_STATUS.PROCESSING
 
             self._inject_job_progress(job)
@@ -113,7 +113,7 @@ class JobQueue(JobQueueInterface[T]):
     def _complete_job(self, job: T, final_state: JOB_STATUS) -> T:
         self.job_store.complete_job(job.id)
         # setting status here, because if this is done earlier, race conditions in get_job are the problem
-        job.execution_finished_at = datetime.utcnow()
+        job.execution_finished_at = datetime.now(timezone.utc)
         job.status = final_state
         return job
 
