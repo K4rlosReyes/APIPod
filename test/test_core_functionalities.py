@@ -57,7 +57,7 @@ def test_single_file_upload(
     return file1.to_base64()
 
 
-@app.endpoint("/make_fries", method="POST")
+@app.endpoint("/make_fries", methods="POST")
 def test(
     mymom: str,
     file1: fastapiUploadFile

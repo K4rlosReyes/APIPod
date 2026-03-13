@@ -80,10 +80,38 @@ Visit `http://localhost:8000/docs` to see your auto-generated Swagger UI.
 
 ## Features in Depth
 
-### 🔄 Asynchronous Jobs & Polling
-For long-running tasks (e.g., inference of a large model), you don't want to block the HTTP request. 
+### 📁 Smart File Handling
+Forget about parsing `multipart/form-data`, `base64`, or `bytes`. APIPod integrates with **MediaToolkit** to handle files as objects.
 
-1. **Enable Job Queue**:
+```python
+from apipod import AudioFile
+
+@app.post("/transcribe")
+def transcribe(audio: AudioFile):
+    # Auto-converts URLs, bytes, or uploads to a usable object
+    audio_data = audio.to_bytes()
+    return {"transcription": "..."}
+```
+
+### ☁️ Serverless Routing
+When deploying to serverless platforms like **RunPod**, standard web frameworks often fail because they lack the necessary routing logic for the platform's specific entry points. **APIPod** detects the environment and handles the routing automatically—no separate "handler" function required.
+
+
+### 🔄 Scaling services, Asynchronous Jobs, Polling and Job Progress 
+
+Let's say you want to serve your service to many users or you have a long-running task.
+Usually you need to set-up a load-balancer, kubernetes, brokers and a lot of other complicated stuff.
+If you deploy to socaity / runpod this is taken care of for you. No Dev-Ops for you.
+
+We allow you to emulate this behaviour for testing.
+
+For long-running tasks (e.g., inference of a large model), you don't want to block the HTTP request. 
+Often you want to be able to give a progress bar or updates about the current task to the user. This is what job progress is for.
+It allows you to communicate a progress percentage and a status message to your user.
+
+
+
+1. **Setup test environment for serverless (Job Queue)**:
    ```python
    # Initialize with serverless compute on localhost to enable the local job queue
    app = APIPod(compute="serverless", provider="localhost")
@@ -112,21 +140,6 @@ For long-running tasks (e.g., inference of a large model), you don't want to blo
        return "pong"
    ```
 
-### 📁 Smart File Handling
-Forget about parsing `multipart/form-data`, `base64`, or `bytes`. APIPod integrates with **MediaToolkit** to handle files as objects.
-
-```python
-from apipod import AudioFile
-
-@app.post("/transcribe")
-def transcribe(audio: AudioFile):
-    # Auto-converts URLs, bytes, or uploads to a usable object
-    audio_data = audio.to_bytes()
-    return {"transcription": "..."}
-```
-
-### ☁️ Serverless Routing
-When deploying to serverless platforms like **RunPod**, standard web frameworks often fail because they lack the necessary routing logic for the platform's specific entry points. **APIPod** detects the environment and handles the routing automatically—no separate "handler" function required.
 
 # Deployment
 APIPod is designed to run anywhere by leveraging docker.
