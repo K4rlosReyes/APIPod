@@ -4,7 +4,7 @@ import threading
 import logging
 from typing import Union, Callable, get_type_hints, Generator, AsyncGenerator, Iterator, AsyncIterator
 from fastapi import APIRouter, FastAPI, Response
-from fastapi.response import JSONResponse
+from fastapi.responses import JSONResponse
 
 from apipod.settings import APIPOD_PORT, APIPOD_HOST, SERVER_DOMAIN
 from apipod.CONSTS import SERVER_HEALTH
