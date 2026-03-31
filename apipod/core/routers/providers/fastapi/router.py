@@ -9,15 +9,16 @@ from fastapi.responses import JSONResponse
 from apipod.settings import APIPOD_PORT, APIPOD_HOST, SERVER_DOMAIN
 from apipod.CONSTS import SERVER_HEALTH
 from apipod.core.job.job_result import JobResultFactory, JobResult
-from apipod.core.routers._socaity_router import _SocaityRouter
-from apipod.core.routers.router_mixins._queue_mixin import _QueueMixin
-from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
+from apipod.core.routers.endpoint_config import FastApiEndpointConfigurator, EndpointExecutionPlan
+from apipod.core.routers.base_router import _SocaityRouter
+from apipod.core.routers.mixins.queue_mixin import _QueueMixin
+from apipod.core.routers.providers.fastapi.file_handling_mixin import _fast_api_file_handling_mixin
 from apipod.core.utils import normalize_name
-from apipod.core.routers.router_mixins._fast_api_exception_handling import _FastAPIExceptionHandler
-from apipod.core.routers.router_mixins._fast_api_llm_mixin import _FastAPILLMMixin
+from apipod.core.routers.providers.fastapi.exception_handling import _FastAPIExceptionHandler
+from apipod.core.routers.providers.fastapi.llm_mixin import _FastApiLlmMixin
 
 
-class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler, _FastAPILLMMixin):
+class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_file_handling_mixin, _FastAPIExceptionHandler, _FastApiLlmMixin):
     """
     FastAPI router extension that adds support for task endpoints.
 
@@ -56,7 +57,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         _SocaityRouter.__init__(self, title=title, summary=summary, *args, **kwargs)
         _QueueMixin.__init__(self, job_queue=job_queue, *args, **kwargs)
         _fast_api_file_handling_mixin.__init__(self, max_upload_file_size_mb=max_upload_file_size_mb, *args, **kwargs)
-        _FastAPILLMMixin.__init__(self)
+        _FastApiLlmMixin.__init__(self)
 
         self.status = SERVER_HEALTH.INITIALIZING
 
@@ -78,6 +79,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         self._worker_stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
         self._logger = logging.getLogger(__name__)
+        self._endpoint_configurator = FastApiEndpointConfigurator(self)
 
         # excpetion handling
         _FastAPIExceptionHandler.__init__(self)
@@ -213,83 +215,122 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         should_use_queue = self._determine_queue_usage(use_queue, normalized_path)
 
         def decorator(func: Callable) -> Callable:
-            # 1. Auto-Detection
-            req_model, res_model, endpoint_type = self._get_llm_config(func)
-            is_generator_fun = self._determine_generator_fun(func)
-            
-            # 2. Fallback: Standard Endpoint
-            if req_model is None:
-                if is_generator_fun:
-                    return self._create_streaming_endpoint_decorator(
-                        path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb,
-                        args=args, kwargs=kwargs
-                    )(func)
-                else:
-                    if should_use_queue:
-                        return self._create_task_endpoint_decorator(
-                            path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
-                            queue_size=queue_size, args=args, kwargs=kwargs
-                        )(func)
-                    else:
-                        return self._create_standard_endpoint_decorator(
-                            path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
-                            args=args, kwargs=kwargs
-                        )(func)
+            plan = self._create_endpoint_plan(
+                func=func,
+                normalized_path=normalized_path,
+                methods=methods,
+                max_upload_file_size_mb=max_upload_file_size_mb,
+                queue_size=queue_size,
+                should_use_queue=should_use_queue,
+                route_args=args,
+                route_kwargs=kwargs
+            )
 
-            assert res_model is not None
+            if plan.is_llm:
+                return self._register_llm_endpoint(func, plan)
+            if plan.is_streaming:
+                return self._create_streaming_endpoint_decorator(
+                    path=plan.path,
+                    methods=plan.methods,
+                    max_upload_file_size_mb=plan.max_upload_file_size_mb,
+                    args=plan.route_args,
+                    kwargs=plan.route_kwargs
+                )(func)
+            if plan.should_use_queue:
+                return self._create_task_endpoint_decorator(
+                    path=plan.path,
+                    methods=plan.methods,
+                    max_upload_file_size_mb=plan.max_upload_file_size_mb,
+                    queue_size=plan.queue_size,
+                    args=plan.route_args,
+                    kwargs=plan.route_kwargs
+                )(func)
 
-            # 3. LLM Endpoint Logic
-            # Register LLM handler in job registry when using queue so workers can find it
-            if should_use_queue:
-                try:
-                    self._job_func_registry[func.__name__] = func
-                except Exception:
-                    pass
-
-            @functools.wraps(func)
-            async def _unified_worker(*w_args, **w_kwargs):
-                # Extract the request payload
-                payload = next((v for v in w_kwargs.values() if isinstance(v, (dict, req_model))),
-                          next((a for a in w_args if isinstance(a, (dict, req_model))), None))
-
-                if payload is None:
-                    raise ValueError(f"Request does not match expected model {req_model}")
-
-                # Remove payload-related keys from kwargs to avoid duplication
-                clean_kwargs = {k: v for k, v in w_kwargs.items() if not isinstance(v, req_model)}
-
-                openai_req = self._prepare_llm_payload(
-                    req_model=req_model,
-                    payload=payload
-                )
-
-                # Do not inject `payload` into clean_kwargs — it is passed
-                # explicitly as `openai_req` to `handle_llm_request` to avoid
-                # duplicate `payload` keywords when calling `_execute_func`.
-                return await self.handle_llm_request(
-                    func=func,
-                    openai_req=openai_req,
-                    should_use_queue=should_use_queue,
-                    res_model=res_model,
-                    endpoint_type=endpoint_type,
-                    **clean_kwargs
-                )
-
-            # 4. Route Registration
-            active_methods = ["POST"] if methods is None else methods
-            final_handler = self._prepare_func_for_media_file_upload_with_fastapi(_unified_worker, max_upload_file_size_mb)
-
-            self.api_route(
-                path=normalized_path,
-                methods=active_methods,
-                response_model=JobResult if should_use_queue else res_model,
-                *args,
-                **kwargs
-            )(final_handler)
-
-            return final_handler
+            return self._create_standard_endpoint_decorator(
+                path=plan.path,
+                methods=plan.methods,
+                max_upload_file_size_mb=plan.max_upload_file_size_mb,
+                args=plan.route_args,
+                kwargs=plan.route_kwargs
+            )(func)
 
         return decorator
+
+    def _create_endpoint_plan(
+        self,
+        *,
+        func: Callable,
+        normalized_path: str,
+        methods: list[str] | None,
+        max_upload_file_size_mb: int | None,
+        queue_size: int,
+        should_use_queue: bool,
+        route_args: tuple,
+        route_kwargs: dict,
+    ) -> EndpointExecutionPlan:
+        """Build an orchestration plan for endpoint registration and execution."""
+        return self._endpoint_configurator.build_plan(
+            func=func,
+            path=normalized_path,
+            methods=methods,
+            max_upload_file_size_mb=max_upload_file_size_mb,
+            queue_size=queue_size,
+            should_use_queue=should_use_queue,
+            route_args=route_args,
+            route_kwargs=route_kwargs,
+        )
+
+    def _register_llm_endpoint(self, func: Callable, plan: EndpointExecutionPlan) -> Callable:
+        """Register a FastAPI LLM endpoint from an endpoint execution plan."""
+        req_model = plan.request_model
+        res_model = plan.response_model
+        endpoint_type = plan.endpoint_type
+
+        if req_model is None or res_model is None or endpoint_type is None:
+            raise ValueError("Invalid LLM endpoint plan: missing request/response metadata")
+
+        if plan.should_use_queue:
+            try:
+                self._job_func_registry[func.__name__] = func
+            except Exception:
+                pass
+
+        @functools.wraps(func)
+        async def _unified_worker(*w_args, **w_kwargs):
+            payload = next(
+                (v for v in w_kwargs.values() if isinstance(v, (dict, req_model))),
+                next((a for a in w_args if isinstance(a, (dict, req_model))), None)
+            )
+
+            if payload is None:
+                raise ValueError(f"Request does not match expected model {req_model}")
+
+            clean_kwargs = {k: v for k, v in w_kwargs.items() if not isinstance(v, req_model)}
+            openai_req = self._prepare_llm_payload(req_model=req_model, payload=payload)
+
+            return await self.handle_llm_request(
+                func=func,
+                openai_req=openai_req,
+                should_use_queue=plan.should_use_queue,
+                res_model=res_model,
+                endpoint_type=endpoint_type,
+                **clean_kwargs
+            )
+
+        final_handler = self._prepare_func_for_media_file_upload_with_fastapi(
+            _unified_worker,
+            plan.max_upload_file_size_mb
+        )
+
+        self.api_route(
+            path=plan.path,
+            methods=plan.active_methods,
+            response_model=JobResult if plan.should_use_queue else res_model,
+            *plan.route_args,
+            **plan.route_kwargs
+        )(final_handler)
+
+        return final_handler
     
     async def _execute_func(self, func, **kwargs):
         """

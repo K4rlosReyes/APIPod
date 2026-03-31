@@ -1,12 +1,11 @@
 import inspect
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, Callable, List, Dict
-from fastapi import Body, Form
 from apipod.compatibility.LimitedUploadFile import LimitedUploadFile
 from apipod.compatibility.upload import is_param_media_toolkit_file
 from apipod.core.job.job_result import FileModel, ImageFileModel, AudioFileModel, VideoFileModel
-from apipod.core.routers.schemas import SUPPORTED_LLM_REQUEST_SCHEMAS
-from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
+from apipod.core.routers.signatures.policies import FastAPISignaturePolicies
+from apipod.core.routers.file_handling.base_mixin import _BaseFileHandlingMixin
 from apipod.core.utils import replace_func_signature
 from media_toolkit import MediaList, MediaDict, ImageFile, AudioFile, VideoFile, MediaFile
 import functools
@@ -117,6 +116,11 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
         # Handle List types
         if org_annotation in [List, list]:
             args = get_args(annotation)
+            list_file_up_annot = self._get_file_model_annotation(
+                MediaFile,
+                is_list=True,
+                max_upload_file_size_mb=max_upload_file_size_mb
+            )
 
             # Check for MediaDict
             if any(t == MediaDict for t in args):
@@ -150,40 +154,6 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
 
         return annotation
 
-    def _is_fastapi_dependency(self, parameter: inspect.Parameter) -> bool:
-        """
-        Check if the default value is an instance of a FastAPI dependency class or a callable (like Depends())
-        """
-        default = parameter.default
-        if default is inspect.Parameter.empty:
-            return False  # No default, regular required param
-
-        # If it's a basic type, it's regular
-        if isinstance(default, (int, float, str, bool, list, dict, tuple, set, type(None))):
-            return False
-
-        # Check for FastAPI/Starlette param by module name
-        module = getattr(type(default), "__module__", "")
-        if module.startswith("fastapi") or module.startswith("starlette"):
-            return True
-
-        return False
-    
-    def _is_supported_llm_request_schema(self, annotation: Any) -> bool:
-        """Check whether an annotation represents a supported APIPod LLM request schema."""
-        if annotation in SUPPORTED_LLM_REQUEST_SCHEMAS:
-            return True
-
-        origin = get_origin(annotation)
-        if origin in (Union, UnionType):
-            return any(
-                arg in SUPPORTED_LLM_REQUEST_SCHEMAS
-                for arg in get_args(annotation)
-                if arg is not type(None)
-            )
-
-        return False
-
     def _convert_params_to_body(self, func: Callable, max_upload_file_size_mb: float = None) -> List[inspect.Parameter]:
         """
         Moves all parameters to the request body.
@@ -199,7 +169,7 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
         field_definitions = {}
         for name, param in sig.parameters.items():     
             # Skip FastAPI dependency injections like Depends, Security, Body, Request, Response
-            if self._is_fastapi_dependency(param):
+            if FastAPISignaturePolicies.is_fastapi_dependency(param):
                 fastapi_dependencies_parameters.append(param)
                 continue
             annotation = annotations.get(name, Any)
@@ -221,11 +191,11 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
                 default = default if default is not ... else None
 
             if not is_file_parameter:
-                default = None if is_optional else default
-                if self._is_supported_llm_request_schema(annotation):
-                    default = Body(default=default)
-                else:
-                    default = Form(default=default)
+                default = FastAPISignaturePolicies.build_non_file_default(
+                    annotation=annotation,
+                    default=default,
+                    is_optional=is_optional
+                )
 
             field_definitions[name] = (annotation, default)
 

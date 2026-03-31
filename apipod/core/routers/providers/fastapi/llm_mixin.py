@@ -1,12 +1,12 @@
 from fastapi.responses import StreamingResponse
 
-from apipod.core.routers.router_mixins._base_llm_mixin import _BaseLLMMixin
+from apipod.core.routers.llm.base_mixin import _BaseLLMMixin
 from apipod.settings import SERVER_DOMAIN
 
 
-class _FastAPILLMMixin(_BaseLLMMixin):
+class _FastApiLlmMixin(_BaseLLMMixin):
     """
-    LLM logic specific to the FastAPI Router
+    LLM execution logic for the FastAPI provider backend.
     """
 
     async def handle_llm_request(self, func, openai_req, should_use_queue, res_model, endpoint_type, **kwargs):
@@ -15,9 +15,10 @@ class _FastAPILLMMixin(_BaseLLMMixin):
         if should_stream:
             result = await self._execute_func(func, payload=openai_req, **kwargs)
             return StreamingResponse(self._stream_generator(result), media_type="text/event-stream")
-        
+
         if should_use_queue:
             from apipod.core.job.job_result import JobResultFactory
+
             job = self.job_queue.add_job(
                 job_function=func,
                 job_params={"payload": openai_req.dict()}

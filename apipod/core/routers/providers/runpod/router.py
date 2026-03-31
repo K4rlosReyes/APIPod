@@ -9,9 +9,9 @@ from apipod import CONSTS
 from apipod.core.job.base_job import JOB_STATUS
 from apipod.core.job.job_progress import JobProgressRunpod, JobProgress
 from apipod.core.job.job_result import JobResultFactory, JobResult
-from apipod.core.routers._socaity_router import _SocaityRouter
-from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
-from apipod.core.routers.router_mixins._runpod_llm_mixin import _RunPodLLMMixin
+from apipod.core.routers.base_router import _SocaityRouter
+from apipod.core.routers.file_handling.base_mixin import _BaseFileHandlingMixin
+from apipod.core.routers.providers.runpod.llm_mixin import _RunPodLLMMixin
 
 from apipod.core.utils import normalize_name
 from apipod.settings import APIPOD_PROVIDER, APIPOD_PORT, DEFAULT_DATE_TIME_FORMAT
@@ -338,7 +338,7 @@ class SocaityRunpodRouter(_SocaityRouter, _BaseFileHandlingMixin, _RunPodLLMMixi
             Function with FastAPI-compatible signature for OpenAPI generation
         """
         # Import FastAPI-specific conversion logic
-        from apipod.core.routers.router_mixins._fast_api_file_handling_mixin import _fast_api_file_handling_mixin
+        from apipod.core.routers.providers.fastapi.file_handling_mixin import _fast_api_file_handling_mixin
         from apipod.core.job.job_result import JobResult
         import inspect
         from apipod.core.utils import replace_func_signature

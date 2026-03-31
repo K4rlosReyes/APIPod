@@ -1,8 +1,8 @@
 from apipod import CONSTS
 from apipod.settings import APIPOD_ORCHESTRATOR, APIPOD_COMPUTE, APIPOD_PROVIDER
-from apipod.core.routers._socaity_router import _SocaityRouter
-from apipod.core.routers._runpod_router import SocaityRunpodRouter
-from apipod.core.routers._fastapi_router import SocaityFastAPIRouter
+from apipod.core.routers.base_router import _SocaityRouter
+from apipod.core.routers.providers.runpod.router import SocaityRunpodRouter
+from apipod.core.routers.providers.fastapi.router import SocaityFastAPIRouter
 from apipod.core.job_queues.job_queue_interface import JobQueueInterface
 
 from typing import Union
