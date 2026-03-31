@@ -1,4 +1,5 @@
-from typing import Callable, Type, Any
+from types import UnionType
+from typing import Callable, Type, Any, get_args, get_origin, Union
 import uuid
 from datetime import datetime, timezone
 import inspect
@@ -16,13 +17,30 @@ class _BaseLLMMixin:
             schemas.CompletionRequest: (schemas.CompletionResponse, "completion"),
             schemas.EmbeddingRequest: (schemas.EmbeddingResponse, "embedding"),
         }
-    
+        self._supported_llm_request_models = tuple(self._llm_configs.keys())
+
+    def _resolve_supported_llm_request_model(self, annotation: Any):
+        """Resolve direct/optional request model annotations to a supported LLM request model."""
+        if annotation in self._llm_configs:
+            return annotation
+
+        origin = get_origin(annotation)
+        if origin in (Union, UnionType):
+            for arg in get_args(annotation):
+                if arg is type(None):
+                    continue
+                if arg in self._llm_configs:
+                    return arg
+
+        return None
+
     def _get_llm_config(self, func: Callable):
         sig = inspect.signature(func)
         for param in sig.parameters.values():
-            if param.annotation in self._llm_configs:
-                res_model, endpoint_type = self._llm_configs[param.annotation]
-                return param.annotation, res_model, endpoint_type
+            req_model = self._resolve_supported_llm_request_model(param.annotation)
+            if req_model is not None:
+                res_model, endpoint_type = self._llm_configs[req_model]
+                return req_model, res_model, endpoint_type
         return None, None, None
 
     def _prepare_llm_payload(self, req_model: Type, payload: Any) -> Any:
@@ -42,7 +60,7 @@ class _BaseLLMMixin:
         """
         if isinstance(result, response_model):
             return result
-        
+
         model_name = getattr(openai_req, "model", "unknown-model")
         ts, uid = int(datetime.now(timezone.utc)), uuid.uuid4().hex[:8]
 

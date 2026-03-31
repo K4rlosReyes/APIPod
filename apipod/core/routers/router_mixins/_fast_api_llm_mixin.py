@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from apipod.core.routers.router_mixins._base_llm_mixin import _BaseLLMMixin
 from apipod.settings import SERVER_DOMAIN
 
+
 class _FastAPILLMMixin(_BaseLLMMixin):
     """
     LLM logic specific to the FastAPI Router

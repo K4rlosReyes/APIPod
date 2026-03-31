@@ -221,7 +221,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             if req_model is None:
                 if is_generator_fun:
                     return self._create_streaming_endpoint_decorator(
-                        path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
+                        path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb,
                         args=args, kwargs=kwargs
                     )(func)
                 else:
@@ -235,7 +235,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                             path=normalized_path, methods=methods, max_upload_file_size_mb=max_upload_file_size_mb, 
                             args=args, kwargs=kwargs
                         )(func)
-            
+
             assert res_model is not None
 
             # 3. LLM Endpoint Logic
@@ -245,10 +245,11 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                     self._job_func_registry[func.__name__] = func
                 except Exception:
                     pass
+
             @functools.wraps(func)
             async def _unified_worker(*w_args, **w_kwargs):
                 # Extract the request payload
-                payload = next((v for v in w_kwargs.values() if isinstance(v, (dict, req_model))), 
+                payload = next((v for v in w_kwargs.values() if isinstance(v, (dict, req_model))),
                           next((a for a in w_args if isinstance(a, (dict, req_model))), None))
 
                 if payload is None:
@@ -258,7 +259,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                 clean_kwargs = {k: v for k, v in w_kwargs.items() if not isinstance(v, req_model)}
 
                 openai_req = self._prepare_llm_payload(
-                    req_model=req_model, 
+                    req_model=req_model,
                     payload=payload
                 )
 
@@ -354,7 +355,8 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         """Determine whether to use the job queue based on configuration and parameters."""
         if use_queue is not None:
             if use_queue and self.job_queue is None:
-                raise ValueError(f"Endpoint {path} requested use_queue=True but no job_queue is configured.")
+                print("Warning: Endpoint {path} requested use_queue=True but no job_queue is configured. We ignore it.")
+                return False
             return use_queue
 
         return self.job_queue is not None
@@ -367,21 +369,21 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
         # 1. Direct generator functions
         if inspect.isgeneratorfunction(func) or inspect.isasyncgenfunction(func):
             return True
-        
+
         # 2. Check return type hints
         try:
             hints = get_type_hints(func)
             return_type = hints.get('return')
-            
+
             if return_type is not None:
                 origin = getattr(return_type, '__origin__', return_type)
                 streaming_types = (Generator, AsyncGenerator, Iterator, AsyncIterator)
-                
+
                 if origin in streaming_types or return_type in streaming_types:
                     return True
         except Exception:
             pass
-        
+
         # 3. Check source code for yield keyword
         try:
             source = inspect.getsource(func)
@@ -389,7 +391,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                 return True
         except Exception:
             pass
-        
+
         return False
 
     def _create_task_endpoint_decorator(self, path: str, methods: list[str] | None, max_upload_file_size_mb: int, queue_size: int, args, kwargs):
@@ -448,14 +450,14 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             return fastapi_route_decorator(with_file_upload_signature)
 
         return decorator
-    
+
     def _create_streaming_endpoint_decorator(self, path: str, methods: list[str] | None, max_upload_file_size_mb: int, args, kwargs):
         """Create a decorator for streaming endpoints."""
         from fastapi.responses import StreamingResponse
 
         # Extract custom headers if provided
         custom_headers = kwargs.pop('response_headers', None)
-        
+
         fastapi_route_decorator = self.api_route(
             path=path,
             methods=["POST"] if methods is None else methods,
@@ -468,7 +470,7 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
             async def streaming_wrapper(*w_args, **w_kwargs):
                 result = await self._execute_func(func, *w_args, **w_kwargs)
                 generator = self._stream_generator(result)
-                
+
                 # Merge default and custom headers
                 headers = {
                     "Cache-Control": "no-cache",
@@ -476,9 +478,9 @@ class SocaityFastAPIRouter(APIRouter, _SocaityRouter, _QueueMixin, _fast_api_fil
                 }
                 if custom_headers:
                     headers.update(custom_headers)
-                    
+
                 return StreamingResponse(
-                    generator, 
+                    generator,
                     media_type="text/event-stream",
                     headers=headers
                 )

@@ -63,6 +63,15 @@ class EmbeddingRequest(OpenAIBaseModel):
     user: Optional[str] = None
 
 
+# Supported request schemas that should be interpreted as JSON bodies
+# by router decorators, even when endpoint authors do not specify Body(...).
+SUPPORTED_LLM_REQUEST_SCHEMAS = (
+    ChatCompletionRequest,
+    CompletionRequest,
+    EmbeddingRequest,
+)
+
+
 # =====================================================
 # Shared output schemas
 # =====================================================

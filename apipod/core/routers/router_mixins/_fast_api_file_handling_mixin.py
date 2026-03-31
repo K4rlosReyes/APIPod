@@ -1,10 +1,11 @@
 import inspect
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, Callable, List, Dict
-from fastapi import Form
+from fastapi import Body, Form
 from apipod.compatibility.LimitedUploadFile import LimitedUploadFile
 from apipod.compatibility.upload import is_param_media_toolkit_file
 from apipod.core.job.job_result import FileModel, ImageFileModel, AudioFileModel, VideoFileModel
+from apipod.core.routers.schemas import SUPPORTED_LLM_REQUEST_SCHEMAS
 from apipod.core.routers.router_mixins._base_file_handling_mixin import _BaseFileHandlingMixin
 from apipod.core.utils import replace_func_signature
 from media_toolkit import MediaList, MediaDict, ImageFile, AudioFile, VideoFile, MediaFile
@@ -167,6 +168,21 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
             return True
 
         return False
+    
+    def _is_supported_llm_request_schema(self, annotation: Any) -> bool:
+        """Check whether an annotation represents a supported APIPod LLM request schema."""
+        if annotation in SUPPORTED_LLM_REQUEST_SCHEMAS:
+            return True
+
+        origin = get_origin(annotation)
+        if origin in (Union, UnionType):
+            return any(
+                arg in SUPPORTED_LLM_REQUEST_SCHEMAS
+                for arg in get_args(annotation)
+                if arg is not type(None)
+            )
+
+        return False
 
     def _convert_params_to_body(self, func: Callable, max_upload_file_size_mb: float = None) -> List[inspect.Parameter]:
         """
@@ -206,7 +222,10 @@ class _fast_api_file_handling_mixin(_BaseFileHandlingMixin):
 
             if not is_file_parameter:
                 default = None if is_optional else default
-                default = Form(default=default)
+                if self._is_supported_llm_request_schema(annotation):
+                    default = Body(default=default)
+                else:
+                    default = Form(default=default)
 
             field_definitions[name] = (annotation, default)
 
